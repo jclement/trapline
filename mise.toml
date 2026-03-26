@@ -16,8 +16,8 @@ run = "CGO_ENABLED=0 go test ./..."
 run = "CGO_ENABLED=0 golangci-lint run ./..."
 
 [tasks.snapshot]
-description = "Build release binaries locally (no publish)"
-run = "goreleaser release --snapshot --clean"
+description = "Build release binaries locally (no publish, no signing)"
+run = "goreleaser release --snapshot --clean --skip=sign"
 
 [tasks.playground]
 description = "Build and launch tmux playground (quit tmux = container dies, clean slate)"
