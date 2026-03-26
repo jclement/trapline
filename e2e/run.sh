@@ -9,8 +9,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> Building trapline binary for linux/amd64..."
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o e2e/trapline ./cmd/trapline
+# Detect architecture to match Docker's platform
+ARCH="$(go env GOARCH)"
+echo "==> Building trapline binary for linux/${ARCH}..."
+CGO_ENABLED=0 GOOS=linux GOARCH="${ARCH}" go build -o e2e/trapline ./cmd/trapline
 
 echo "==> Running e2e tests..."
 cd e2e

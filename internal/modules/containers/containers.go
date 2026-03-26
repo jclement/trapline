@@ -26,10 +26,11 @@ type ContainerBaseline struct {
 }
 
 type Module struct {
-	store      *baseline.Store
-	baseline   ContainerBaseline
-	socketPath string
-	client     *http.Client
+	store          *baseline.Store
+	baseline       ContainerBaseline
+	baselineLoaded bool
+	socketPath     string
+	client         *http.Client
 }
 
 func New() *Module {
@@ -47,7 +48,7 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 	}
 	m.store = store
 	m.baseline = ContainerBaseline{Containers: make(map[string]string)}
-	m.store.Load(m.Name(), &m.baseline)
+	m.baselineLoaded, _ = m.store.Load(m.Name(), &m.baseline)
 
 	m.client = &http.Client{
 		Transport: &http.Transport{
@@ -82,8 +83,9 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 		current[name] = c.Image
 	}
 
-	if len(m.baseline.Containers) == 0 {
+	if !m.baselineLoaded {
 		m.baseline.Containers = current
+		m.baselineLoaded = true
 		m.store.Save(m.Name(), m.baseline)
 		return nil, nil
 	}

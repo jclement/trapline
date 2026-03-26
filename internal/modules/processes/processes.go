@@ -27,9 +27,10 @@ type DenyEntry struct {
 }
 
 type Module struct {
-	store    *baseline.Store
-	baseline []ProcessEntry
-	deny     []DenyEntry
+	store          *baseline.Store
+	baseline       []ProcessEntry
+	baselineLoaded bool
+	deny           []DenyEntry
 	// For testing
 	ProcDir string
 }
@@ -48,7 +49,7 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 		return err
 	}
 	m.store = store
-	m.store.Load(m.Name(), &m.baseline)
+	m.baselineLoaded, _ = m.store.Load(m.Name(), &m.baseline)
 
 	// Parse deny list from config
 	if denyRaw, ok := cfg.Settings["deny"]; ok {
@@ -109,8 +110,9 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	}
 
 	// Learning mode
-	if len(m.baseline) == 0 {
+	if !m.baselineLoaded {
 		m.baseline = current
+		m.baselineLoaded = true
 		m.store.Save(m.Name(), m.baseline)
 		return findings, nil // still return deny findings
 	}

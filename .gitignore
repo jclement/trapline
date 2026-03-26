@@ -4,3 +4,4 @@ trapline
 .DS_Store
 /dev/playground/
 !dev/playground/trapline.yml
+.claude/

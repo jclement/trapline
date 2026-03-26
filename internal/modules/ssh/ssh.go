@@ -20,9 +20,10 @@ type SSHBaseline struct {
 }
 
 type Module struct {
-	store      *baseline.Store
-	baseline   SSHBaseline
-	ConfigPath string
+	store          *baseline.Store
+	baseline       SSHBaseline
+	baselineLoaded bool
+	ConfigPath     string
 }
 
 func New() *Module {
@@ -39,7 +40,7 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 		return err
 	}
 	m.store = store
-	m.store.Load(m.Name(), &m.baseline)
+	m.baselineLoaded, _ = m.store.Load(m.Name(), &m.baseline)
 	return nil
 }
 
@@ -54,8 +55,9 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	// Always check security settings regardless of baseline
 	findings = append(findings, checkSecuritySettings(current.Settings)...)
 
-	if m.baseline.ConfigHash == "" {
+	if !m.baselineLoaded {
 		m.baseline = current
+		m.baselineLoaded = true
 		m.store.Save(m.Name(), m.baseline)
 		return findings, nil
 	}

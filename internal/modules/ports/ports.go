@@ -25,8 +25,9 @@ type PortEntry struct {
 }
 
 type Module struct {
-	store    *baseline.Store
-	baseline []PortEntry
+	store          *baseline.Store
+	baseline       []PortEntry
+	baselineLoaded bool
 	// For testing: override the proc paths
 	ProcTCP  string
 	ProcTCP6 string
@@ -51,7 +52,7 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 		return err
 	}
 	m.store = store
-	m.store.Load(m.Name(), &m.baseline)
+	m.baselineLoaded, _ = m.store.Load(m.Name(), &m.baseline)
 	return nil
 }
 
@@ -61,8 +62,9 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 		return nil, err
 	}
 
-	if len(m.baseline) == 0 {
+	if !m.baselineLoaded {
 		m.baseline = current
+		m.baselineLoaded = true
 		m.store.Save(m.Name(), m.baseline)
 		return nil, nil
 	}

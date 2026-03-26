@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 	// Ensure binary exists
 	if _, err := os.Stat("trapline"); err != nil {
 		fmt.Println("ERROR: trapline binary not found in e2e/ directory.")
-		fmt.Println("Build it first: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o e2e/trapline ./cmd/trapline")
+		fmt.Println("Build it first: CGO_ENABLED=0 GOOS=linux go build -o e2e/trapline ./cmd/trapline")
 		os.Exit(1)
 	}
 
@@ -45,15 +45,15 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Cleanup
-	run("docker", "rm", "-f", containerName)
+	runQuiet("docker", "rm", "-f", containerName)
 
 	os.Exit(code)
 }
 
 func startContainer(t *testing.T) {
 	t.Helper()
-	// Remove any leftover container
-	run("docker", "rm", "-f", containerName)
+	// Remove any leftover container (ignore errors/output if it doesn't exist)
+	runQuiet("docker", "rm", "-f", containerName)
 
 	// Start fresh container
 	if err := run("docker", "run", "-d",
@@ -69,7 +69,7 @@ func startContainer(t *testing.T) {
 
 func stopContainer(t *testing.T) {
 	t.Helper()
-	run("docker", "rm", "-f", containerName)
+	runQuiet("docker", "rm", "-f", containerName)
 }
 
 // dockerExec runs a command in the test container and returns stdout.
@@ -410,6 +410,11 @@ func run(name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// runQuiet runs a command and discards output (used for cleanup where errors are expected).
+func runQuiet(name string, args ...string) error {
+	return exec.Command(name, args...).Run()
 }
 
 func absPath(rel string) string {

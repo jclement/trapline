@@ -7,7 +7,7 @@ golangci-lint = "1"
 run = "CGO_ENABLED=0 go build -o trapline ./cmd/trapline"
 
 [tasks.build-linux]
-run = "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/trapline ./cmd/trapline"
+run = "CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) go build -o dist/trapline ./cmd/trapline"
 
 [tasks.test]
 run = "go test ./..."
@@ -26,7 +26,7 @@ run = "goreleaser release --snapshot --clean"
 [tasks.playground]
 description = "Build, deploy to Ubuntu container, install & start trapline"
 run = """
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/trapline ./cmd/trapline \
+CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) go build -o dist/trapline ./cmd/trapline \
   && docker compose -f dev/docker-compose.playground.yml up --build -d \
   && echo '' \
   && echo 'Trapline playground is running.' \

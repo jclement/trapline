@@ -25,9 +25,10 @@ type FileEntry struct {
 }
 
 type Module struct {
-	store     *baseline.Store
-	baseline  map[string]FileEntry
-	watchList []string
+	store          *baseline.Store
+	baseline       map[string]FileEntry
+	baselineLoaded bool
+	watchList      []string
 }
 
 func New() *Module {
@@ -68,7 +69,7 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 
 	// Load existing baseline
 	m.baseline = make(map[string]FileEntry)
-	m.store.Load(m.Name(), &m.baseline)
+	m.baselineLoaded, _ = m.store.Load(m.Name(), &m.baseline)
 
 	return nil
 }
@@ -97,8 +98,9 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	}
 
 	// No baseline yet = learning mode
-	if len(m.baseline) == 0 {
+	if !m.baselineLoaded {
 		m.baseline = current
+		m.baselineLoaded = true
 		m.store.Save(m.Name(), m.baseline)
 		return nil, nil
 	}
