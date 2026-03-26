@@ -25,7 +25,7 @@
 //
 //   - Dashboard password (for the web UI): A single password used to access the
 //     browser dashboard and the GET endpoints. Authentication is checked in three ways,
-//     in priority order: (1) trapline_session cookie, (2) ?password= query parameter,
+//     in priority order: (1) trapline_session cookie, (2) X-Trapline-Password header,
 //     (3) POST form field "password". On successful auth, a 30-day HttpOnly cookie is
 //     set with SameSite=Strict. Configured via --password flag or PASSWORD env.
 //
@@ -132,6 +132,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -150,6 +151,8 @@ type Server struct {
 	webRoot        string          // URL prefix for reverse proxy mounting (e.g., "/trapline"), empty string for root
 	addr           string          // listen address in host:port format (e.g., ":8080")
 	mux            *http.ServeMux  // HTTP request multiplexer with all routes registered at construction time
+	authAttempts   map[string][]time.Time // tracks failed auth attempts by IP for rate limiting
+	authAttemptsMu sync.Mutex             // protects authAttempts
 }
 
 // Config holds server configuration. All fields can be set via CLI flags or environment
@@ -223,6 +226,7 @@ func New(cfg Config) (*Server, error) {
 		webRoot:        webRoot,
 		addr:           cfg.Addr,
 		mux:            http.NewServeMux(),
+		authAttempts:   make(map[string][]time.Time),
 	}
 
 	// Register routes under the web root prefix. The trailing-slash pattern
@@ -325,6 +329,39 @@ func (s *Server) Close() error {
 // false since the response has already been written.
 // ---------------------------------------------------------------------------
 
+// checkRateLimit returns false (and writes a 429 response) if the given IP
+// has exceeded 5 failed authentication attempts in the last minute. This
+// provides basic brute-force protection for both dashboard and agent auth.
+func (s *Server) checkRateLimit(w http.ResponseWriter, ip string) bool {
+	s.authAttemptsMu.Lock()
+	defer s.authAttemptsMu.Unlock()
+
+	cutoff := time.Now().Add(-1 * time.Minute)
+	attempts := s.authAttempts[ip]
+
+	// Prune expired entries.
+	valid := attempts[:0]
+	for _, t := range attempts {
+		if t.After(cutoff) {
+			valid = append(valid, t)
+		}
+	}
+	s.authAttempts[ip] = valid
+
+	if len(valid) >= 5 {
+		http.Error(w, "too many failed auth attempts, try again later", http.StatusTooManyRequests)
+		return false
+	}
+	return true
+}
+
+// recordFailedAuth records a failed authentication attempt for the given IP.
+func (s *Server) recordFailedAuth(ip string) {
+	s.authAttemptsMu.Lock()
+	defer s.authAttemptsMu.Unlock()
+	s.authAttempts[ip] = append(s.authAttempts[ip], time.Now())
+}
+
 // requirePublishSecret validates the agent's Bearer token against the set of
 // configured publish secrets. This is the auth gate for POST /api/findings
 // and optionally for GET /api/findings (agents can read back their own data).
@@ -337,10 +374,16 @@ func (s *Server) Close() error {
 // Returns true if the token is valid; returns false and writes a 401 response
 // if the header is missing, malformed, or contains an unknown token.
 func (s *Server) requirePublishSecret(w http.ResponseWriter, r *http.Request) bool {
+	ip := r.RemoteAddr
+	if !s.checkRateLimit(w, ip) {
+		return false
+	}
+
 	// Extract the Authorization header value. Agents must send:
 	//   Authorization: Bearer <publish-secret>
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
+		s.recordFailedAuth(ip)
 		http.Error(w, "unauthorized: missing Bearer token", http.StatusUnauthorized)
 		return false
 	}
@@ -348,6 +391,7 @@ func (s *Server) requirePublishSecret(w http.ResponseWriter, r *http.Request) bo
 	// against the pre-built set. Missing keys return false from the map.
 	token := strings.TrimPrefix(auth, "Bearer ")
 	if !s.publishSecrets[token] {
+		s.recordFailedAuth(ip)
 		http.Error(w, "unauthorized: invalid publish secret", http.StatusUnauthorized)
 		return false
 	}
@@ -362,14 +406,16 @@ func (s *Server) requirePublishSecret(w http.ResponseWriter, r *http.Request) bo
 //     on every request. The cookie value is the raw password (simple scheme;
 //     appropriate for single-user dashboards over HTTPS).
 //
-//  2. Query parameter ("?password="): Used by the dashboard's client-side
-//     JavaScript to authenticate API calls (the password is passed as a query
-//     param in fetch() calls). When matched, a session cookie is also set so
-//     subsequent requests are authenticated via the cookie path.
+//  2. X-Trapline-Password header: For programmatic API access from scripts that
+//     cannot use cookies. Checked before POST form to allow header-based auth
+//     on any HTTP method.
 //
 //  3. POST form field ("password"): Used by the HTML login form. When the user
 //     submits the login form, the password is sent as a standard form field.
 //     On match, a session cookie is set for future requests.
+//
+// The query parameter auth path has been removed to avoid leaking the password
+// in server logs, browser history, and referrer headers.
 //
 // The session cookie is configured with:
 //   - Path scoped to webRoot+"/" so it works correctly under reverse proxies
@@ -381,15 +427,19 @@ func (s *Server) requirePublishSecret(w http.ResponseWriter, r *http.Request) bo
 // if none matched. Unlike requirePublishSecret, this does NOT write a 401 --
 // the caller is responsible for deciding what to do (e.g., show the login page).
 func (s *Server) requirePassword(w http.ResponseWriter, r *http.Request) bool {
+	ip := r.RemoteAddr
+	if !s.checkRateLimit(w, ip) {
+		return false
+	}
+
 	// Priority 1: Check the session cookie. If the user previously logged in
 	// successfully, they will have this cookie set with the password value.
 	if c, err := r.Cookie("trapline_session"); err == nil && c.Value == s.password {
 		return true
 	}
-	// Priority 2: Check the query parameter. The dashboard JavaScript uses this
-	// to authenticate API fetch() calls. Also sets the cookie on match so that
-	// subsequent page loads do not require the password in the URL.
-	if r.URL.Query().Get("password") == s.password {
+	// Priority 2: Check the X-Trapline-Password header. This supports
+	// programmatic API access from scripts that cannot use cookies.
+	if r.Header.Get("X-Trapline-Password") == s.password && r.Header.Get("X-Trapline-Password") != "" {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "trapline_session",
 			Value:    s.password,
@@ -415,6 +465,7 @@ func (s *Server) requirePassword(w http.ResponseWriter, r *http.Request) bool {
 			return true
 		}
 	}
+	s.recordFailedAuth(ip)
 	return false
 }
 
@@ -713,11 +764,10 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 //     contains a simple HTML form that POSTs the password back to this same
 //     endpoint, where requirePassword will validate it and set the session cookie.
 //
-//  3. Dashboard rendering: On successful auth, the dashboard template is rendered
-//     with the web root and password injected as template variables. The password
-//     is embedded in the HTML so that the client-side JavaScript can pass it as a
-//     query parameter when making API fetch() calls. This is safe because the page
-//     is only served to authenticated users, and the cookie has SameSite=Strict.
+//  3. Dashboard rendering: On successful auth via POST, a 303 redirect to GET
+//     is issued (POST-Redirect-GET pattern). On GET with a valid cookie, the
+//     dashboard template is rendered with the web root. Client-side JavaScript
+//     API calls rely on the session cookie for authentication (no password in URLs).
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// Strip the web root prefix to get the path relative to the dashboard root.
 	// Only serve the dashboard at the exact root; return 404 for sub-paths to
@@ -729,20 +779,31 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If not authenticated, show the login page instead of the dashboard.
-	// Note: requirePassword does NOT write a 401 response, so we can render
-	// a friendly HTML login form instead of a bare error.
+	// Note: requirePassword does NOT write a 401 response (unless rate-limited),
+	// so we can render a friendly HTML login form instead of a bare error.
 	if !s.requirePassword(w, r) {
-		w.Header().Set("Content-Type", "text/html")
-		loginTmpl.Execute(w, map[string]string{"WebRoot": s.webRoot})
+		// If rate-limited, requirePassword already wrote a 429. Check if
+		// a response has been started by looking at the status code.
+		if w.Header().Get("Content-Type") == "" {
+			w.Header().Set("Content-Type", "text/html")
+			loginTmpl.Execute(w, map[string]string{"WebRoot": s.webRoot})
+		}
 		return
 	}
 
-	// Render the full dashboard. The password is passed into the template so
-	// the client-side JavaScript can authenticate its API calls via query param.
+	// If this was a POST login, redirect to GET to prevent form resubmission
+	// on browser refresh (POST-Redirect-GET pattern).
+	if r.Method == http.MethodPost {
+		http.Redirect(w, r, s.webRoot+"/", http.StatusSeeOther)
+		return
+	}
+
+	// Render the full dashboard. The cookie is already set, so the client-side
+	// JavaScript API calls rely on the cookie for authentication (no password
+	// in the URL).
 	w.Header().Set("Content-Type", "text/html")
 	dashboardTmpl.Execute(w, map[string]string{
-		"WebRoot":  s.webRoot,
-		"Password": s.password,
+		"WebRoot": s.webRoot,
 	})
 }
 
@@ -800,8 +861,9 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 //
 // JavaScript:
 //   - No framework dependencies -- vanilla JS with fetch() and DOM manipulation.
-//   - BASE and PASSWORD are injected from Go template variables at render time.
-//   - api() helper appends the password as a query parameter to every API call.
+//   - BASE is injected from the Go template variable at render time.
+//   - api() helper sends requests with credentials: 'same-origin' so the
+//     session cookie is included automatically. No password in URLs.
 //   - load() fetches stats, hosts, and findings in parallel via Promise.all().
 //   - Auto-refresh: setInterval(load, 30000) polls every 30 seconds.
 //   - esc() function: Creates a temporary DOM element and uses textContent/innerHTML
@@ -876,10 +938,9 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE htm
 
 <script>
 const BASE = '{{.WebRoot}}';
-const PASSWORD = '{{.Password}}';
 
 async function api(path) {
-  const res = await fetch(BASE + path + (path.includes('?') ? '&' : '?') + 'password=' + encodeURIComponent(PASSWORD));
+  const res = await fetch(BASE + path, {credentials: 'same-origin'});
   return res.json();
 }
 

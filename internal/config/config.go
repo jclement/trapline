@@ -252,7 +252,8 @@ type ModuleConfig struct {
 //     threshold and 1-hour cooldown prevent alert fatigue.
 //
 //   - Update: enabled, checking every 6 hours from the project's GitHub repo
-//     with auto-apply on. Keeps the fleet current without operator intervention.
+//     with auto-apply off (pending cosign verification). Reports available
+//     updates but does not apply them automatically.
 //
 //   - Defaults: 5-minute scan interval, "medium" severity, 1-hour cooldown.
 //     These are sensible middle-ground values for most modules.
@@ -309,7 +310,10 @@ func Default() *Config {
 			Repo:          "jclement/tripline",
 			Channel:       "stable",
 			CheckInterval: 6 * time.Hour,
-			AutoApply:     true,
+			// AutoApply is disabled by default until cosign signature verification
+			// is implemented. The updater will still check for and report available
+			// updates, but will not download or replace the binary automatically.
+			AutoApply: false,
 		},
 		Defaults: DefaultsConfig{
 			Interval: 5 * time.Minute,

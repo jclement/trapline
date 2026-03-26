@@ -134,7 +134,8 @@ func TestGetStats(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 
-	req = httptest.NewRequest("GET", "/api/stats?password=testpass", nil)
+	req = httptest.NewRequest("GET", "/api/stats", nil)
+	req.AddCookie(&http.Cookie{Name: "trapline_session", Value: "testpass"})
 	w = httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 
@@ -167,7 +168,8 @@ func TestDashboardRequiresPassword(t *testing.T) {
 func TestDashboardWithPassword(t *testing.T) {
 	s := testServer(t)
 
-	req := httptest.NewRequest("GET", "/?password=testpass", nil)
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: "trapline_session", Value: "testpass"})
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 
@@ -195,7 +197,8 @@ func TestUpsertIncrementsHitCount(t *testing.T) {
 		s.Handler().ServeHTTP(w, req)
 	}
 
-	req := httptest.NewRequest("GET", "/api/findings?password=testpass", nil)
+	req := httptest.NewRequest("GET", "/api/findings", nil)
+	req.AddCookie(&http.Cookie{Name: "trapline_session", Value: "testpass"})
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 
@@ -225,14 +228,16 @@ func TestWebRootPrefix(t *testing.T) {
 	}
 	defer s.Close()
 
-	req := httptest.NewRequest("GET", "/trapline/?password=testpass", nil)
+	req := httptest.NewRequest("GET", "/trapline/", nil)
+	req.AddCookie(&http.Cookie{Name: "trapline_session", Value: "testpass"})
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Errorf("dashboard at /trapline/ = %d", w.Code)
 	}
 
-	req = httptest.NewRequest("GET", "/trapline/api/stats?password=testpass", nil)
+	req = httptest.NewRequest("GET", "/trapline/api/stats", nil)
+	req.AddCookie(&http.Cookie{Name: "trapline_session", Value: "testpass"})
 	w = httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 	if w.Code != 200 {
