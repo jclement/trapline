@@ -1,7 +1,7 @@
 [tools]
-go = "1.23"
-goreleaser = "2"
-golangci-lint = "1"
+go = "latest"
+goreleaser = "latest"
+golangci-lint = "latest"
 
 [tasks.build]
 run = "CGO_ENABLED=0 go build -o trapline ./cmd/trapline"
