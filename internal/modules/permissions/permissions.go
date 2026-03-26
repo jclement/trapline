@@ -110,8 +110,8 @@ type dirCache struct {
 // Module implements engine.Scanner for filesystem permission monitoring.
 type Module struct {
 	store     *baseline.Store
-	scanPaths []string  // Root directories to walk for permission checks
-	cache     dirCache  // Persisted mtime cache for incremental scanning
+	scanPaths []string // Root directories to walk for permission checks
+	cache     dirCache // Persisted mtime cache for incremental scanning
 }
 
 // New creates a permissions scanner targeting the three most security-sensitive

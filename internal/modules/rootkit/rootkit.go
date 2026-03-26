@@ -461,8 +461,8 @@ func (m *Module) checkDeletedExe() []finding.Finding {
 				Status:    finding.StatusNew,
 				Summary:   fmt.Sprintf("process %s running with deleted binary", entry.Name()),
 				Detail: map[string]interface{}{
-					"pid":  entry.Name(),
-					"exe":  target,
+					"pid": entry.Name(),
+					"exe": target,
 				},
 			})
 		}

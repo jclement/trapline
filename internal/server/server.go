@@ -145,12 +145,12 @@ import (
 // both the agent API (Bearer-token authenticated) and the web dashboard (password
 // authenticated). The zero value is not usable; always construct via [New].
 type Server struct {
-	db             *sql.DB         // SQLite database connection (WAL mode, pure-Go driver)
-	password       string          // dashboard password for web UI authentication
-	publishSecrets map[string]bool // set of valid agent Bearer tokens; checked via map lookup for O(1) validation
-	webRoot        string          // URL prefix for reverse proxy mounting (e.g., "/trapline"), empty string for root
-	addr           string          // listen address in host:port format (e.g., ":8080")
-	mux            *http.ServeMux  // HTTP request multiplexer with all routes registered at construction time
+	db             *sql.DB                // SQLite database connection (WAL mode, pure-Go driver)
+	password       string                 // dashboard password for web UI authentication
+	publishSecrets map[string]bool        // set of valid agent Bearer tokens; checked via map lookup for O(1) validation
+	webRoot        string                 // URL prefix for reverse proxy mounting (e.g., "/trapline"), empty string for root
+	addr           string                 // listen address in host:port format (e.g., ":8080")
+	mux            *http.ServeMux         // HTTP request multiplexer with all routes registered at construction time
 	authAttempts   map[string][]time.Time // tracks failed auth attempts by IP for rate limiting
 	authAttemptsMu sync.Mutex             // protects authAttempts
 }
@@ -233,7 +233,7 @@ func New(cfg Config) (*Server, error) {
 	// on handleDashboard acts as a catch-all for the prefix subtree. The API
 	// routes are registered as exact paths (no trailing slash).
 	prefix := webRoot
-	s.mux.HandleFunc(prefix+"/", s.handleDashboard)         // GET/POST: dashboard HTML + login flow
+	s.mux.HandleFunc(prefix+"/", s.handleDashboard)            // GET/POST: dashboard HTML + login flow
 	s.mux.HandleFunc(prefix+"/api/findings", s.handleFindings) // GET: list findings; POST: ingest from agents
 	s.mux.HandleFunc(prefix+"/api/hosts", s.handleHosts)       // GET: host summary with severity counts
 	s.mux.HandleFunc(prefix+"/api/stats", s.handleStats)       // GET: aggregate statistics for dashboard cards

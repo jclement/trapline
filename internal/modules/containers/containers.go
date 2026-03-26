@@ -19,9 +19,9 @@
 //  3. On first scan, stores this map as the baseline (learning mode).
 //  4. On subsequent scans, compares current containers against baseline:
 //     - Containers present now but not in baseline -> "unexpected container"
-//       (SeverityHigh: possible rogue container / cryptominer / reverse shell)
+//     (SeverityHigh: possible rogue container / cryptominer / reverse shell)
 //     - Containers in baseline but not running now -> "missing container"
-//       (SeverityMedium: expected service may have been stopped or crashed)
+//     (SeverityMedium: expected service may have been stopped or crashed)
 //
 // The module communicates via the Docker socket API rather than shelling out
 // to the `docker` CLI. This is both more reliable (no PATH dependency, no
@@ -97,9 +97,9 @@ import (
 // the /containers/json API endpoint that we need for baseline comparison.
 type Container struct {
 	ID     string            `json:"Id"`
-	Names  []string          `json:"Names"`   // Docker prefixes names with "/"; we strip it
-	Image  string            `json:"Image"`    // Image name (may include tag)
-	State  string            `json:"State"`    // "running", "exited", etc.
+	Names  []string          `json:"Names"` // Docker prefixes names with "/"; we strip it
+	Image  string            `json:"Image"` // Image name (may include tag)
+	State  string            `json:"State"` // "running", "exited", etc.
 	Labels map[string]string `json:"Labels"`
 }
 
@@ -115,7 +115,7 @@ type Module struct {
 	store          *baseline.Store
 	baseline       ContainerBaseline
 	baselineLoaded bool
-	socketPath     string     // Path to the Docker daemon Unix socket
+	socketPath     string       // Path to the Docker daemon Unix socket
 	client         *http.Client // HTTP client configured to talk over the Unix socket
 }
 

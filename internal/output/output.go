@@ -93,7 +93,7 @@ type Sink interface {
 // so multiple goroutines can emit simultaneously, while AddDashboardSink and
 // Close acquire a write lock to mutate the sink list.
 type Manager struct {
-	sinks []Sink     // all registered output sinks, in registration order
+	sinks []Sink       // all registered output sinks, in registration order
 	mu    sync.RWMutex // guards sinks slice; RLock for reads, Lock for writes
 }
 
@@ -569,12 +569,12 @@ func (s *TCPSink) Close() error {
 // repeatedly within a short window, which is important for rules that fire on
 // every scan cycle.
 type WebhookSink struct {
-	url      string              // destination webhook URL
-	level    finding.Severity    // minimum severity threshold
-	cooldown time.Duration       // minimum interval between POSTs for the same FindingID
-	template string              // reserved for future custom payload templates
+	url      string               // destination webhook URL
+	level    finding.Severity     // minimum severity threshold
+	cooldown time.Duration        // minimum interval between POSTs for the same FindingID
+	template string               // reserved for future custom payload templates
 	lastSent map[string]time.Time // tracks the last send time per FindingID for cooldown enforcement
-	mu       sync.Mutex          // serialises cooldown map access and HTTP calls
+	mu       sync.Mutex           // serialises cooldown map access and HTTP calls
 }
 
 // NewWebhookSink creates a WebhookSink from the webhook section of the output

@@ -127,10 +127,10 @@ type Module struct {
 	// Real-time inotify watcher (supplementary to polling).
 	// When inotify is available, changes between poll intervals are detected
 	// within milliseconds and queued as pendingFindings.
-	watcher        *fsnotify.Watcher
-	pendingMu      sync.Mutex
+	watcher         *fsnotify.Watcher
+	pendingMu       sync.Mutex
 	pendingFindings []finding.Finding
-	cancelWatch    context.CancelFunc
+	cancelWatch     context.CancelFunc
 }
 
 // New creates an uninitialized Module. Call Init() before use.

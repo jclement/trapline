@@ -13,10 +13,10 @@ import (
 
 // mockModule is a test implementation of the Module interface.
 type mockModule struct {
-	name     string
-	initErr  error
-	scanErr  error
-	findings []finding.Finding
+	name      string
+	initErr   error
+	scanErr   error
+	findings  []finding.Finding
 	scanCount atomic.Int32
 }
 

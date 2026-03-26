@@ -189,11 +189,11 @@ func (e *Engine) Stop() {
 // findings. It returns raw findings directly from the modules.
 func (e *Engine) ScanAll(ctx context.Context) ([]finding.Finding, error) {
 	var (
-		allFindings []finding.Finding  // shared accumulator, guarded by mu
-		mu          sync.Mutex         // protects allFindings from concurrent appends
-		wg          sync.WaitGroup     // tracks one goroutine per enabled module
-		firstErr    error              // captures the first error encountered
-		errOnce     sync.Once          // ensures only the first error is recorded
+		allFindings []finding.Finding // shared accumulator, guarded by mu
+		mu          sync.Mutex        // protects allFindings from concurrent appends
+		wg          sync.WaitGroup    // tracks one goroutine per enabled module
+		firstErr    error             // captures the first error encountered
+		errOnce     sync.Once         // ensures only the first error is recorded
 	)
 
 	for name, m := range e.modules {
@@ -355,7 +355,7 @@ func (e *Engine) Metrics() *metrics.Collector {
 //  5. For each finding:
 //     a. Enrich: set Hostname, Timestamp (if unset), Module, TraplineVersion, ScanID.
 //     b. Deduplicate: check the cooldown map; skip if this finding was already
-//        emitted within the configured cooldown window.
+//     emitted within the configured cooldown window.
 //     c. Deliver: call the FindingHandler callback if one is registered.
 func (e *Engine) scanAndEmit(ctx context.Context, m Module) {
 	// Generate a unique ID for this scan cycle so downstream consumers can

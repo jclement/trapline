@@ -35,6 +35,8 @@ CGO_ENABLED=0 go test -tags e2e -v ./e2e/ -timeout 5m # e2e tests (requires Dock
 
 ## Important rules
 
+- **Run `gofmt` after every change.** Before committing, always run: `gofmt -w $(find . -name "*.go" ! -path "*/vendor/*")`. This is non-negotiable.
+- **Run `go vet` and `go test` after every change.** Before committing: `CGO_ENABLED=0 go vet ./... && CGO_ENABLED=0 go test ./...`
 - **Keep README.md current.** Any time you add, remove, or change a feature, command, module, config option, or CLI flag, update README.md to match. The README is the single source of truth for users. If the code and README disagree, the README is wrong and must be fixed.
 - **Keep CLAUDE.md current.** Update the architecture list below when adding new packages.
 

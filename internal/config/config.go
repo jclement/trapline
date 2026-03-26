@@ -78,9 +78,9 @@ type Config struct {
 // can be independently enabled/disabled and filtered by severity level.
 type OutputConfig struct {
 	Console ConsoleOutputConfig `yaml:"console"` // stdout — useful for interactive runs and CI
-	File    FileOutputConfig    `yaml:"file"`     // rotated log file on disk
-	TCP     TCPOutputConfig     `yaml:"tcp"`      // TCP socket — typically Fluent Bit ingestion
-	Webhook WebhookOutputConfig `yaml:"webhook"`  // HTTP POST webhook for high-severity alerts
+	File    FileOutputConfig    `yaml:"file"`    // rotated log file on disk
+	TCP     TCPOutputConfig     `yaml:"tcp"`     // TCP socket — typically Fluent Bit ingestion
+	Webhook WebhookOutputConfig `yaml:"webhook"` // HTTP POST webhook for high-severity alerts
 }
 
 // ConsoleOutputConfig configures stdout output. This sink is primarily useful
@@ -260,18 +260,31 @@ type ModuleConfig struct {
 //
 //   - Modules: all 13 built-in modules are enabled with intervals tuned to
 //     their cost and volatility:
+//
 //   - file-integrity: 5 m — hashing is moderately expensive
+//
 //   - packages: 1 h — package lists rarely change
+//
 //   - ports: 60 s — new listeners appear quickly
+//
 //   - processes: 30 s — most time-sensitive for intrusion detection
+//
 //   - containers: 60 s — Docker state changes frequently
+//
 //   - users: 15 m — user/group changes are infrequent
+//
 //   - cron: 15 m — crontab edits are rare
+//
 //   - suid: 1 h — SUID binaries rarely change
+//
 //   - ssh: 15 m — authorized_keys and sshd config changes are notable
+//
 //   - permissions: 1 h — permission audits are expensive
+//
 //   - rootkit: 30 m — thorough checks are CPU-intensive
+//
 //   - malware: 15 m — balances detection speed with CPU cost
+//
 //   - network: 60 s — routing/DNS changes matter quickly
 func Default() *Config {
 	return &Config{

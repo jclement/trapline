@@ -410,10 +410,10 @@ func isPrivateIP(ipStr string) bool {
 	privateRanges := []struct {
 		network string
 	}{
-		{"10.0.0.0/8"},      // Class A private (large enterprises, cloud VPCs)
-		{"172.16.0.0/12"},   // Class B private (medium networks)
-		{"192.168.0.0/16"},  // Class C private (home/small office networks)
-		{"fc00::/7"},        // IPv6 Unique Local Address (ULA), RFC4193
+		{"10.0.0.0/8"},     // Class A private (large enterprises, cloud VPCs)
+		{"172.16.0.0/12"},  // Class B private (medium networks)
+		{"192.168.0.0/16"}, // Class C private (home/small office networks)
+		{"fc00::/7"},       // IPv6 Unique Local Address (ULA), RFC4193
 	}
 
 	for _, r := range privateRanges {

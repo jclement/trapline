@@ -40,6 +40,25 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "Running pre-release checks..."
+echo ""
+
+# Gate on fmt + vet + tests
+echo "  Formatting..."
+gofmt -l $(find . -name "*.go" ! -path "*/vendor/*") | while read f; do
+  echo "    ERROR: $f not formatted"; exit 1
+done
+
+echo "  Vetting..."
+CGO_ENABLED=0 go vet ./...
+
+echo "  Testing..."
+CGO_ENABLED=0 go test ./...
+
+echo ""
+echo "All checks passed."
+echo ""
+
 # Get current max tag (or default to v0.0.0)
 current=$(git tag -l 'v*' --sort=-v:refname | head -1)
 if [ -z "$current" ]; then
