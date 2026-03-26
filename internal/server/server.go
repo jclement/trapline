@@ -1,3 +1,126 @@
+// Package server implements the Trapline built-in dashboard server, which provides
+// both a web-based UI for human operators and a JSON API for remote trapline agents.
+//
+// # Architecture
+//
+// The server is a single self-contained HTTP server that embeds everything it needs:
+// a SQLite database for persistence, Go HTML templates for the web dashboard, and a
+// small REST API for agent-to-server communication. There are no external dependencies
+// beyond the SQLite driver (modernc.org/sqlite, pure-Go, CGO_ENABLED=0 compatible).
+//
+// The dashboard renders a dark-themed, auto-refreshing single-page view of all
+// security findings reported by trapline agents across the fleet. It uses vanilla
+// JavaScript (no frameworks) with a 30-second polling interval and supports host-level
+// filtering via a dropdown. The CSS uses a monospace font stack (SF Mono / Fira Code)
+// and a #0a0a0a background with #00cccc accent colors.
+//
+// # Dual Authentication Model
+//
+// The server enforces two separate authentication mechanisms:
+//
+//   - Publish secrets (for agents): One or more shared secrets passed via the
+//     Authorization: Bearer <token> header. Agents use these to POST findings to
+//     /api/findings. Multiple secrets are supported to allow rotation without downtime.
+//     Configured via --publish-secrets flag or PUBLISH_SECRETS env (comma-separated).
+//
+//   - Dashboard password (for the web UI): A single password used to access the
+//     browser dashboard and the GET endpoints. Authentication is checked in three ways,
+//     in priority order: (1) trapline_session cookie, (2) ?password= query parameter,
+//     (3) POST form field "password". On successful auth, a 30-day HttpOnly cookie is
+//     set with SameSite=Strict. Configured via --password flag or PASSWORD env.
+//
+// The GET /api/findings endpoint accepts either authentication method (Bearer token
+// or dashboard password), so both agents and browser sessions can read findings.
+//
+// # Web Root / Reverse Proxy Support
+//
+// The --web-root / WEB_ROOT option allows mounting the dashboard under a URL prefix
+// (e.g., "/trapline") for reverse proxy deployments. When set, all routes are
+// registered under that prefix and the cookie path is scoped accordingly. A bare
+// request to the prefix (without trailing slash) is 301-redirected to prefix/.
+//
+// Example Traefik configuration (Docker labels):
+//
+//	traefik.http.routers.trapline.rule=Host(`monitor.example.com`) && PathPrefix(`/trapline`)
+//	traefik.http.services.trapline.loadbalancer.server.port=8080
+//
+// Example nginx location block:
+//
+//	location /trapline/ {
+//	    proxy_pass http://127.0.0.1:8080/trapline/;
+//	    proxy_set_header Host $host;
+//	}
+//
+// # SQLite Schema
+//
+// The server stores all findings in a single "findings" table with the following schema:
+//
+//	findings (
+//	    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+//	    hostname         TEXT NOT NULL,          -- agent hostname
+//	    module           TEXT NOT NULL,          -- scanner module name (e.g., "ports", "certs")
+//	    finding_id       TEXT NOT NULL,          -- stable identifier for deduplication
+//	    severity         TEXT NOT NULL,          -- "critical", "high", "medium", "info"
+//	    status           TEXT NOT NULL DEFAULT 'new',  -- "new", "active", "resolved"
+//	    summary          TEXT NOT NULL,          -- one-line human description
+//	    detail           TEXT,                   -- JSON-encoded map[string]interface{} from finding.Detail
+//	    trapline_version TEXT,                   -- version of the agent that reported this
+//	    scan_id          TEXT,                   -- unique scan run identifier
+//	    received_at      DATETIME DEFAULT CURRENT_TIMESTAMP, -- when the server first received it
+//	    first_seen       DATETIME DEFAULT CURRENT_TIMESTAMP, -- when this finding first appeared
+//	    last_seen        DATETIME DEFAULT CURRENT_TIMESTAMP, -- updated on each re-report
+//	    hit_count        INTEGER DEFAULT 1,      -- incremented on each re-report
+//	    resolved_at      DATETIME,               -- set when status transitions to "resolved"
+//	    UNIQUE(hostname, module, finding_id)      -- upsert key for deduplication
+//	)
+//
+// WAL journal mode is enabled for concurrent read performance. Three indexes cover
+// the most common query patterns: by hostname, severity, and status. An additional
+// index on last_seen supports the default ORDER BY in the findings list.
+//
+// # API Endpoints
+//
+//	POST /api/findings   -- Ingest findings from agents (requires Bearer token).
+//	                        Accepts a JSON array of finding.Finding structs.
+//	                        Uses INSERT ... ON CONFLICT to upsert: new findings are
+//	                        inserted with status "new"; existing findings (same
+//	                        hostname+module+finding_id) have their severity, summary,
+//	                        detail, and version updated, last_seen is bumped, hit_count
+//	                        is incremented, and status is set to "active".
+//	                        Returns {"ingested": N} with the count of successfully stored rows.
+//
+//	GET  /api/findings   -- List findings (requires Bearer token OR dashboard password).
+//	                        Query params: host (filter by hostname), severity (filter by
+//	                        severity level), status (default "active"). Returns up to 500
+//	                        findings ordered by last_seen DESC as a JSON array.
+//
+//	GET  /api/hosts      -- List hosts with finding counts (requires dashboard password).
+//	                        Returns hostname, total active findings, critical count, high
+//	                        count, and last report timestamp. Ordered by critical DESC,
+//	                        then high DESC.
+//
+//	GET  /api/stats      -- Aggregate statistics (requires dashboard password).
+//	                        Returns {"hosts": N, "findings": N, "critical": N, "high": N}
+//	                        counting only active/new findings.
+//
+// # Embedded Web Dashboard
+//
+// The dashboard is rendered from two Go html/template variables:
+//
+//   - loginTmpl: A minimal centered login form. Dark background, single password input,
+//     POSTs to the web root. No JavaScript required for login.
+//
+//   - dashboardTmpl: The main dashboard page. Renders stat cards (hosts, findings,
+//     critical, high) in a responsive CSS grid, a host list with severity badges and
+//     click-to-filter, a host dropdown for filtering, and a findings list sorted by
+//     recency. All data is fetched client-side via the JSON API using the dashboard
+//     password as a query parameter. Auto-refreshes every 30 seconds via setInterval.
+//     HTML is escaped client-side via a DOM-based esc() function to prevent XSS.
+//
+// The CSS uses severity-keyed color coding throughout: #ff0000 for critical,
+// #cc4400 for high, #aa8800 for medium, #444/#aaa for info. Host cards get colored
+// left borders based on their worst severity. The layout is fully responsive via
+// CSS grid auto-fit.
 package server
 
 import (
@@ -16,27 +139,38 @@ import (
 	"github.com/jclement/tripline/pkg/finding"
 )
 
-// Server is the trapline dashboard server.
+// Server is the trapline dashboard server. It holds the database handle, authentication
+// credentials, routing configuration, and the HTTP mux. A single Server instance serves
+// both the agent API (Bearer-token authenticated) and the web dashboard (password
+// authenticated). The zero value is not usable; always construct via [New].
 type Server struct {
-	db             *sql.DB
-	password       string
-	publishSecrets map[string]bool // set of valid agent secrets
-	webRoot        string          // URL prefix for reverse proxy (e.g., "/trapline")
-	addr           string
-	mux            *http.ServeMux
+	db             *sql.DB         // SQLite database connection (WAL mode, pure-Go driver)
+	password       string          // dashboard password for web UI authentication
+	publishSecrets map[string]bool // set of valid agent Bearer tokens; checked via map lookup for O(1) validation
+	webRoot        string          // URL prefix for reverse proxy mounting (e.g., "/trapline"), empty string for root
+	addr           string          // listen address in host:port format (e.g., ":8080")
+	mux            *http.ServeMux  // HTTP request multiplexer with all routes registered at construction time
 }
 
-// Config holds server configuration. All fields can be set via CLI flags or env vars.
+// Config holds server configuration. All fields can be set via CLI flags or environment
+// variables. Password and at least one PublishSecret are required; the constructor
+// validates this and returns an error if they are missing.
 type Config struct {
-	Addr           string   // --addr / ADDR (default ":8080")
-	DataDir        string   // --data / DATA_DIR
-	Password       string   // --password / PASSWORD (required, for web UI)
-	PublishSecrets []string // --publish-secrets / PUBLISH_SECRETS (comma-sep, for agents)
-	WebRoot        string   // --web-root / WEB_ROOT (URL prefix, e.g., "/trapline")
+	Addr           string   // --addr / ADDR: TCP listen address (default ":8080")
+	DataDir        string   // --data / DATA_DIR: directory for server.db SQLite file (created if needed)
+	Password       string   // --password / PASSWORD: required dashboard login password for the web UI
+	PublishSecrets []string // --publish-secrets / PUBLISH_SECRETS: one or more Bearer tokens for agent auth (comma-separated in env)
+	WebRoot        string   // --web-root / WEB_ROOT: URL prefix for reverse proxy deployment (e.g., "/trapline")
 }
 
-// New creates a new server.
+// New creates and initializes a new Server from the given configuration. It validates
+// that required fields (Password, PublishSecrets) are present, creates the data
+// directory if needed, opens the SQLite database with WAL journaling, runs schema
+// migrations, normalizes the web root, and registers all HTTP routes. The caller
+// must call [Server.Close] when done to release the database handle.
 func New(cfg Config) (*Server, error) {
+	// Validate required configuration. Both auth mechanisms must be configured:
+	// the password for dashboard users and at least one publish secret for agents.
 	if cfg.Password == "" {
 		return nil, fmt.Errorf("password is required (--password or PASSWORD env)")
 	}
@@ -44,24 +178,36 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("at least one publish secret is required (--publish-secrets or PUBLISH_SECRETS env)")
 	}
 
+	// Ensure the data directory exists with restrictive permissions (0700)
+	// since it will contain the SQLite database with security findings.
 	if err := os.MkdirAll(cfg.DataDir, 0700); err != nil {
 		return nil, err
 	}
 
+	// Open the SQLite database with WAL (Write-Ahead Logging) journal mode for
+	// better concurrent read performance. The pure-Go modernc.org/sqlite driver
+	// is used so the binary can be built with CGO_ENABLED=0.
 	dbPath := filepath.Join(cfg.DataDir, "server.db")
 	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL")
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
 
+	// Run idempotent schema migrations (CREATE TABLE IF NOT EXISTS / CREATE INDEX
+	// IF NOT EXISTS). On failure, close the database to avoid leaking the handle.
 	if err := migrateServer(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrating database: %w", err)
 	}
 
-	// Normalize web root
+	// Normalize web root by stripping any trailing slash so that route
+	// registration produces clean paths like "/trapline/" not "/trapline//".
+	// An empty string means the server is mounted at the domain root.
 	webRoot := strings.TrimRight(cfg.WebRoot, "/")
 
+	// Build the publish secrets set. Whitespace is trimmed and empty strings
+	// are skipped to tolerate trailing commas in the PUBLISH_SECRETS env var.
+	// Using a map[string]bool gives O(1) token validation in requirePublishSecret.
 	secrets := make(map[string]bool)
 	for _, s := range cfg.PublishSecrets {
 		s = strings.TrimSpace(s)
@@ -79,14 +225,18 @@ func New(cfg Config) (*Server, error) {
 		mux:            http.NewServeMux(),
 	}
 
-	// Register routes with web root prefix
+	// Register routes under the web root prefix. The trailing-slash pattern
+	// on handleDashboard acts as a catch-all for the prefix subtree. The API
+	// routes are registered as exact paths (no trailing slash).
 	prefix := webRoot
-	s.mux.HandleFunc(prefix+"/", s.handleDashboard)
-	s.mux.HandleFunc(prefix+"/api/findings", s.handleFindings)
-	s.mux.HandleFunc(prefix+"/api/hosts", s.handleHosts)
-	s.mux.HandleFunc(prefix+"/api/stats", s.handleStats)
+	s.mux.HandleFunc(prefix+"/", s.handleDashboard)         // GET/POST: dashboard HTML + login flow
+	s.mux.HandleFunc(prefix+"/api/findings", s.handleFindings) // GET: list findings; POST: ingest from agents
+	s.mux.HandleFunc(prefix+"/api/hosts", s.handleHosts)       // GET: host summary with severity counts
+	s.mux.HandleFunc(prefix+"/api/stats", s.handleStats)       // GET: aggregate statistics for dashboard cards
 
-	// Redirect bare prefix to prefix/
+	// When a web root is configured, redirect requests to the bare prefix
+	// (e.g., "/trapline") to the canonical form with trailing slash ("/trapline/").
+	// This prevents 404s when users type the URL without a trailing slash.
 	if prefix != "" {
 		s.mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, prefix+"/", http.StatusMovedPermanently)
@@ -96,6 +246,16 @@ func New(cfg Config) (*Server, error) {
 	return s, nil
 }
 
+// migrateServer runs idempotent DDL to ensure the findings table and its indexes
+// exist. All statements use IF NOT EXISTS so this is safe to call on every startup.
+// The schema uses a UNIQUE constraint on (hostname, module, finding_id) which serves
+// as the upsert key in ingestFindings -- if the same finding is reported again, the
+// existing row is updated rather than duplicated. Four indexes are created to support
+// the most common query patterns in the dashboard and API:
+//   - idx_findings_hostname: fast filtering by host in listFindings and handleHosts
+//   - idx_findings_severity: fast filtering by severity level
+//   - idx_findings_status: fast filtering for active/new findings (used by almost every query)
+//   - idx_findings_last_seen: fast ORDER BY last_seen DESC in the findings list
 func migrateServer(db *sql.DB) error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS findings (
@@ -125,12 +285,18 @@ func migrateServer(db *sql.DB) error {
 	return err
 }
 
-// Handler returns the HTTP handler (for testing and reverse proxies).
+// Handler returns the underlying http.Handler for use in tests or when embedding
+// the server behind another HTTP server or reverse proxy middleware. The returned
+// handler has all routes pre-registered and is safe for concurrent use.
 func (s *Server) Handler() http.Handler {
 	return s.mux
 }
 
-// ListenAndServe starts the HTTP server.
+// ListenAndServe starts the HTTP server on the configured address. It sets
+// conservative timeouts: 10s read (protects against slow clients), 30s write
+// (allows time for database queries), and 120s idle (keeps connections open
+// for the dashboard's 30-second polling interval without excessive churn).
+// This method blocks until the server is shut down or encounters a fatal error.
 func (s *Server) ListenAndServe() error {
 	srv := &http.Server{
 		Addr:         s.addr,
@@ -142,20 +308,44 @@ func (s *Server) ListenAndServe() error {
 	return srv.ListenAndServe()
 }
 
-// Close closes the database.
+// Close releases the SQLite database handle. It should be called when the server
+// is shutting down, typically via a defer in the caller. Any in-flight requests
+// that are still using the database may fail after this call.
 func (s *Server) Close() error {
 	return s.db.Close()
 }
 
-// --- Auth ---
+// ---------------------------------------------------------------------------
+// Authentication middleware
+// ---------------------------------------------------------------------------
+// Trapline uses two independent auth mechanisms. Agent endpoints require a
+// Bearer token (publish secret). Dashboard/web endpoints require the dashboard
+// password. Both functions return true if auth succeeded, or write an HTTP
+// error and return false if it failed. Callers should return immediately on
+// false since the response has already been written.
+// ---------------------------------------------------------------------------
 
-// requirePublishSecret checks that the request has a valid agent publish secret.
+// requirePublishSecret validates the agent's Bearer token against the set of
+// configured publish secrets. This is the auth gate for POST /api/findings
+// and optionally for GET /api/findings (agents can read back their own data).
+//
+// The token is extracted from the standard Authorization header in the format
+// "Bearer <token>". The lookup is a simple map check (O(1)). No timing-safe
+// comparison is used here because the map lookup on the raw string is already
+// not constant-time; for production hardening, consider using a HMAC comparison.
+//
+// Returns true if the token is valid; returns false and writes a 401 response
+// if the header is missing, malformed, or contains an unknown token.
 func (s *Server) requirePublishSecret(w http.ResponseWriter, r *http.Request) bool {
+	// Extract the Authorization header value. Agents must send:
+	//   Authorization: Bearer <publish-secret>
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
 		http.Error(w, "unauthorized: missing Bearer token", http.StatusUnauthorized)
 		return false
 	}
+	// Strip the "Bearer " prefix to isolate the raw token, then check it
+	// against the pre-built set. Missing keys return false from the map.
 	token := strings.TrimPrefix(auth, "Bearer ")
 	if !s.publishSecrets[token] {
 		http.Error(w, "unauthorized: invalid publish secret", http.StatusUnauthorized)
@@ -164,13 +354,41 @@ func (s *Server) requirePublishSecret(w http.ResponseWriter, r *http.Request) bo
 	return true
 }
 
-// requirePassword checks the web UI password via cookie or query param.
+// requirePassword validates the dashboard password for web UI access. It checks
+// three sources in priority order, returning true on the first match:
+//
+//  1. Cookie ("trapline_session"): Set after a successful login. Checked first
+//     so that already-authenticated users do not need to re-submit credentials
+//     on every request. The cookie value is the raw password (simple scheme;
+//     appropriate for single-user dashboards over HTTPS).
+//
+//  2. Query parameter ("?password="): Used by the dashboard's client-side
+//     JavaScript to authenticate API calls (the password is passed as a query
+//     param in fetch() calls). When matched, a session cookie is also set so
+//     subsequent requests are authenticated via the cookie path.
+//
+//  3. POST form field ("password"): Used by the HTML login form. When the user
+//     submits the login form, the password is sent as a standard form field.
+//     On match, a session cookie is set for future requests.
+//
+// The session cookie is configured with:
+//   - Path scoped to webRoot+"/" so it works correctly under reverse proxies
+//   - HttpOnly=true to prevent JavaScript access (XSS mitigation)
+//   - SameSite=Strict to prevent CSRF via cross-origin requests
+//   - MaxAge=30 days (86400*30 seconds) for long-lived sessions
+//
+// Returns true if any source matched; returns false (without writing a response)
+// if none matched. Unlike requirePublishSecret, this does NOT write a 401 --
+// the caller is responsible for deciding what to do (e.g., show the login page).
 func (s *Server) requirePassword(w http.ResponseWriter, r *http.Request) bool {
-	// Check cookie first
+	// Priority 1: Check the session cookie. If the user previously logged in
+	// successfully, they will have this cookie set with the password value.
 	if c, err := r.Cookie("trapline_session"); err == nil && c.Value == s.password {
 		return true
 	}
-	// Check query param (for initial login)
+	// Priority 2: Check the query parameter. The dashboard JavaScript uses this
+	// to authenticate API fetch() calls. Also sets the cookie on match so that
+	// subsequent page loads do not require the password in the URL.
 	if r.URL.Query().Get("password") == s.password {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "trapline_session",
@@ -178,11 +396,12 @@ func (s *Server) requirePassword(w http.ResponseWriter, r *http.Request) bool {
 			Path:     s.webRoot + "/",
 			HttpOnly: true,
 			SameSite: http.SameSiteStrictMode,
-			MaxAge:   86400 * 30,
+			MaxAge:   86400 * 30, // 30 days
 		})
 		return true
 	}
-	// Check form POST
+	// Priority 3: Check the POST form body. This is used by the HTML login form.
+	// Only checked on POST requests to avoid accidentally parsing GET request bodies.
 	if r.Method == http.MethodPost {
 		if r.FormValue("password") == s.password {
 			http.SetCookie(w, &http.Cookie{
@@ -191,7 +410,7 @@ func (s *Server) requirePassword(w http.ResponseWriter, r *http.Request) bool {
 				Path:     s.webRoot + "/",
 				HttpOnly: true,
 				SameSite: http.SameSiteStrictMode,
-				MaxAge:   86400 * 30,
+				MaxAge:   86400 * 30, // 30 days
 			})
 			return true
 		}
@@ -199,8 +418,13 @@ func (s *Server) requirePassword(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-// --- API Handlers ---
+// ---------------------------------------------------------------------------
+// API Handlers
+// ---------------------------------------------------------------------------
 
+// handleFindings is the route handler for /api/findings. It dispatches to
+// ingestFindings for POST (agent publishes) and listFindings for GET (dashboard
+// or agent reads). All other HTTP methods receive a 405 Method Not Allowed.
 func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -212,11 +436,37 @@ func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ingestFindings handles POST /api/findings. This is the primary endpoint used by
+// remote trapline agents to publish their scan results to the server.
+//
+// Authentication: Requires a valid Bearer token (publish secret).
+//
+// Request body: JSON array of finding.Finding structs. The Detail field (a free-form
+// map[string]interface{}) is serialized to a JSON string for storage in the TEXT
+// column, since SQLite does not have a native JSON column type.
+//
+// Upsert logic: Each finding is inserted using INSERT ... ON CONFLICT. The conflict
+// key is (hostname, module, finding_id) -- the UNIQUE constraint in the schema. On
+// conflict (i.e., the finding was previously reported), the following updates occur:
+//   - severity, summary, detail, trapline_version, scan_id: overwritten with latest values
+//   - last_seen: bumped to CURRENT_TIMESTAMP
+//   - hit_count: incremented by 1 (tracks how many times this finding has been reported)
+//   - status: set to "active" (re-activates findings that may have been manually resolved)
+//
+// Note: first_seen and received_at are NOT updated on conflict, preserving the
+// original discovery timestamp.
+//
+// Errors during individual row inserts are silently skipped (the ingested count
+// simply is not incremented). This is a deliberate design choice: a single malformed
+// finding should not cause the entire batch to fail.
+//
+// Response: {"ingested": N} where N is the number of successfully stored findings.
 func (s *Server) ingestFindings(w http.ResponseWriter, r *http.Request) {
 	if !s.requirePublishSecret(w, r) {
 		return
 	}
 
+	// Decode the request body as a JSON array of findings.
 	var findings []finding.Finding
 	if err := json.NewDecoder(r.Body).Decode(&findings); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -225,7 +475,15 @@ func (s *Server) ingestFindings(w http.ResponseWriter, r *http.Request) {
 
 	ingested := 0
 	for _, f := range findings {
+		// Serialize the Detail map to a JSON string for storage in the TEXT column.
+		// Errors from json.Marshal on a map[string]interface{} are effectively impossible
+		// since the data was just decoded from JSON, so the error is safely ignored.
 		detail, _ := json.Marshal(f.Detail)
+
+		// Upsert: insert new findings or update existing ones based on the
+		// (hostname, module, finding_id) unique constraint. The ON CONFLICT clause
+		// uses the "excluded" pseudo-table to reference the values that would have
+		// been inserted, while "hit_count" (without prefix) references the existing row.
 		_, err := s.db.Exec(`
 			INSERT INTO findings (hostname, module, finding_id, severity, status, summary, detail, trapline_version, scan_id)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -244,12 +502,35 @@ func (s *Server) ingestFindings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Return the count of successfully ingested findings as JSON.
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{"ingested": ingested})
 }
 
+// listFindings handles GET /api/findings. It returns a JSON array of findings
+// filtered by optional query parameters. This endpoint is used both by the
+// dashboard JavaScript (authenticated via password) and by agents that want to
+// read back findings (authenticated via Bearer token).
+//
+// Authentication: Accepts either Bearer token OR dashboard password. The check
+// examines the Authorization header first -- if it starts with "Bearer ", the
+// publish secret path is used; otherwise, the password path is tried. This dual
+// auth allows both agents and browser sessions to access the same data.
+//
+// Query parameters:
+//   - host:     filter by exact hostname match (optional)
+//   - severity: filter by exact severity level (optional)
+//   - status:   filter by status (default: "active")
+//
+// The query is built dynamically by appending AND clauses for each provided filter.
+// Results are ordered by last_seen DESC and limited to 500 rows to prevent
+// unbounded responses from overwhelming the dashboard.
+//
+// Response: JSON array of FindingRow objects (or null if no results).
 func (s *Server) listFindings(w http.ResponseWriter, r *http.Request) {
-	// GET requires either publish secret or web password
+	// Dual auth: check for Bearer token first (agent path), fall back to
+	// password auth (dashboard path). This ordering prevents the password
+	// check from consuming a Bearer-authenticated request's cookie slot.
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
 		if !s.requirePublishSecret(w, r) {
@@ -260,13 +541,17 @@ func (s *Server) listFindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extract optional filter parameters from the query string.
 	hostname := r.URL.Query().Get("host")
 	severity := r.URL.Query().Get("severity")
 	status := r.URL.Query().Get("status")
 	if status == "" {
-		status = "active"
+		status = "active" // Default to showing only active findings in the dashboard.
 	}
 
+	// Build the query dynamically. The base WHERE clause always filters by status.
+	// Additional AND clauses are appended for each provided filter parameter.
+	// Parameters are passed as positional args to prevent SQL injection.
 	query := "SELECT hostname, module, finding_id, severity, status, summary, detail, last_seen, hit_count FROM findings WHERE status = ?"
 	args := []interface{}{status}
 
@@ -278,6 +563,8 @@ func (s *Server) listFindings(w http.ResponseWriter, r *http.Request) {
 		query += " AND severity = ?"
 		args = append(args, severity)
 	}
+	// Order by most recently seen first, with a hard limit of 500 to keep
+	// response sizes manageable for the dashboard's auto-refresh cycle.
 	query += " ORDER BY last_seen DESC LIMIT 500"
 
 	rows, err := s.db.Query(query, args...)
@@ -287,6 +574,9 @@ func (s *Server) listFindings(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	// FindingRow is the API response shape for a single finding. It mirrors the
+	// database columns selected above. Detail is returned as a raw JSON string
+	// (as stored in SQLite) rather than being re-parsed into a map.
 	type FindingRow struct {
 		Hostname  string `json:"hostname"`
 		Module    string `json:"module"`
@@ -310,12 +600,28 @@ func (s *Server) listFindings(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(results)
 }
 
+// handleHosts handles GET /api/hosts. It returns a JSON array of host summaries,
+// each containing the hostname, total active finding count, critical count, high
+// count, and the timestamp of the most recent finding report.
+//
+// Authentication: Requires dashboard password only (not available to agents via
+// Bearer token, since this is a dashboard-specific aggregation view).
+//
+// The query uses conditional SUM (CASE WHEN) to compute per-severity counts in a
+// single pass over the findings table. Only active and new findings are included.
+// Results are ordered by critical count descending, then high count descending,
+// so the most problematic hosts appear at the top of the dashboard.
+//
+// Response: JSON array of HostRow objects (or null if no hosts are reporting).
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	if !s.requirePassword(w, r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
+	// Aggregate findings by hostname. The CASE WHEN expressions compute per-severity
+	// counts without requiring separate queries. MAX(last_seen) gives the most recent
+	// report time for each host, which is displayed in the dashboard host list.
 	rows, err := s.db.Query(`
 		SELECT hostname,
 			COUNT(*) as total_findings,
@@ -332,6 +638,7 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	// HostRow is the API response shape for a single host summary.
 	type HostRow struct {
 		Hostname   string `json:"hostname"`
 		Total      int    `json:"total_findings"`
@@ -351,12 +658,27 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(results)
 }
 
+// handleStats handles GET /api/stats. It returns aggregate statistics for the
+// dashboard header cards: total distinct hosts, total findings, critical count,
+// and high count. Only active and new findings are counted (resolved findings
+// are excluded from the dashboard view).
+//
+// Authentication: Requires dashboard password only.
+//
+// The four counts are fetched via separate QueryRow calls rather than a single
+// query with multiple aggregates. This is simple and clear; the performance cost
+// is negligible since SQLite processes all four queries against the same cached
+// pages and the idx_findings_status index covers the WHERE clause.
+//
+// Response: {"hosts": N, "findings": N, "critical": N, "high": N}
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	if !s.requirePassword(w, r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
+	// Four separate scalar queries for dashboard stat cards.
+	// Each filters to active/new status to match what the dashboard displays.
 	var totalHosts, totalFindings, critical, high int
 	s.db.QueryRow("SELECT COUNT(DISTINCT hostname) FROM findings WHERE status IN ('active','new')").Scan(&totalHosts)
 	s.db.QueryRow("SELECT COUNT(*) FROM findings WHERE status IN ('active','new')").Scan(&totalFindings)
@@ -372,22 +694,51 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- Dashboard ---
+// ---------------------------------------------------------------------------
+// Dashboard (HTML UI)
+// ---------------------------------------------------------------------------
 
+// handleDashboard serves the main web dashboard at the root path (or web root
+// prefix). It implements the complete login-to-dashboard flow:
+//
+//  1. Path validation: The handler is registered with a trailing-slash pattern
+//     (e.g., "/trapline/"), which makes it a catch-all for the subtree. To avoid
+//     serving the dashboard for API paths or unknown paths, it strips the web root
+//     prefix and only proceeds if the remaining path is exactly "/" or "". All
+//     other paths get a 404. (The API handlers are registered as exact-match
+//     patterns and take precedence over this catch-all.)
+//
+//  2. Authentication check: If requirePassword returns false (no valid cookie,
+//     query param, or POST form), the login template is rendered. The login page
+//     contains a simple HTML form that POSTs the password back to this same
+//     endpoint, where requirePassword will validate it and set the session cookie.
+//
+//  3. Dashboard rendering: On successful auth, the dashboard template is rendered
+//     with the web root and password injected as template variables. The password
+//     is embedded in the HTML so that the client-side JavaScript can pass it as a
+//     query parameter when making API fetch() calls. This is safe because the page
+//     is only served to authenticated users, and the cookie has SameSite=Strict.
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	// Strip web root prefix for path matching
+	// Strip the web root prefix to get the path relative to the dashboard root.
+	// Only serve the dashboard at the exact root; return 404 for sub-paths to
+	// avoid shadowing the API endpoints registered on the same mux.
 	path := strings.TrimPrefix(r.URL.Path, s.webRoot)
 	if path != "/" && path != "" {
 		http.NotFound(w, r)
 		return
 	}
 
+	// If not authenticated, show the login page instead of the dashboard.
+	// Note: requirePassword does NOT write a 401 response, so we can render
+	// a friendly HTML login form instead of a bare error.
 	if !s.requirePassword(w, r) {
 		w.Header().Set("Content-Type", "text/html")
 		loginTmpl.Execute(w, map[string]string{"WebRoot": s.webRoot})
 		return
 	}
 
+	// Render the full dashboard. The password is passed into the template so
+	// the client-side JavaScript can authenticate its API calls via query param.
 	w.Header().Set("Content-Type", "text/html")
 	dashboardTmpl.Execute(w, map[string]string{
 		"WebRoot":  s.webRoot,
@@ -395,6 +746,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// loginTmpl is the HTML template for the login page. Design decisions:
+//   - Minimal, centered card layout with no navigation or branding beyond the title.
+//   - Dark theme (#0a0a0a background, #1a1a1a card) matching the dashboard aesthetic.
+//   - Monospace font stack (SF Mono, Fira Code) for a terminal/ops feel.
+//   - Single password field with autofocus for fast keyboard-only login.
+//   - Standard HTML form POST (no JavaScript required) for maximum compatibility.
+//   - The form action includes {{.WebRoot}} so it works correctly under a reverse proxy prefix.
+//   - Cyan (#00cccc) accent color on the title and submit button for brand consistency.
 var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <html><head>
 <title>Trapline</title>
@@ -420,6 +779,37 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 </div>
 </body></html>`))
 
+// dashboardTmpl is the HTML template for the main dashboard page. Design decisions:
+//
+// Layout:
+//   - Header bar with "TRAPLINE" title and auto-refresh indicator.
+//   - Stat cards in a responsive CSS grid (auto-fit, min 150px) showing hosts, findings,
+//     critical, and high counts with severity-appropriate colors.
+//   - Host list: clickable cards with colored left borders (red=critical, orange=high) and
+//     severity badge pills. Clicking a host sets the filter dropdown and reloads findings.
+//   - Host dropdown: <select> element for programmatic host filtering.
+//   - Findings list: cards with colored left borders by severity, showing severity badge,
+//     summary text, and metadata line (hostname / module / finding_id / hit count / last seen).
+//
+// CSS:
+//   - Dark theme: #0a0a0a body, #1a1a1a cards, #222 borders. No light mode.
+//   - Severity colors: #ff0000 critical, #cc4400 high, #aa8800 medium, #444 info.
+//   - Accent color: #00cccc (cyan) for the title and host stat cards.
+//   - Monospace font stack: SF Mono, Fira Code, system monospace.
+//   - All spacing uses rem units for accessibility (respects browser font size).
+//
+// JavaScript:
+//   - No framework dependencies -- vanilla JS with fetch() and DOM manipulation.
+//   - BASE and PASSWORD are injected from Go template variables at render time.
+//   - api() helper appends the password as a query parameter to every API call.
+//   - load() fetches stats, hosts, and findings in parallel via Promise.all().
+//   - Auto-refresh: setInterval(load, 30000) polls every 30 seconds.
+//   - esc() function: Creates a temporary DOM element and uses textContent/innerHTML
+//     to safely escape HTML entities, preventing XSS from finding summaries.
+//   - selectHost() and filterHost(): Client-side host filtering. Sets the dropdown
+//     value and re-fetches findings with the ?host= query parameter.
+//   - renderHosts() dynamically populates both the host list cards and the
+//     <select> dropdown options from the same data, keeping them in sync.
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(`<!DOCTYPE html>
 <html><head>
 <title>Trapline Dashboard</title>

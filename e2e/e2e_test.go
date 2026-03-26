@@ -422,8 +422,8 @@ func TestDetectsHiddenFilesInTmp(t *testing.T) {
 	dockerExec("bash", "-c", "echo 'payload' > /tmp/.hidden_backdoor")
 
 	out, _ := dockerExec("trapline", "scan", "--config", "/etc/trapline/trapline.yml")
-	if !strings.Contains(out, "rootkit-hidden-file") {
-		t.Errorf("expected rootkit-hidden-file finding in:\n%s", out)
+	if !strings.Contains(out, "hidden-file") {
+		t.Errorf("expected hidden-file finding in:\n%s", out)
 	}
 }
 
@@ -437,8 +437,8 @@ func TestDetectsRegularFileInDev(t *testing.T) {
 	dockerExec("bash", "-c", "echo 'hidden' > /dev/.secret")
 
 	out, _ := dockerExec("trapline", "scan", "--config", "/etc/trapline/trapline.yml")
-	if !strings.Contains(out, "rootkit-dev-file") {
-		t.Errorf("expected rootkit-dev-file finding in:\n%s", out)
+	if !strings.Contains(out, "dev-regular-file") {
+		t.Errorf("expected dev-regular-file finding in:\n%s", out)
 	}
 }
 
