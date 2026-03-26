@@ -50,3 +50,12 @@ modules:
     interval: 5s
   containers:
     enabled: false
+  rootkit:
+    enabled: true
+    interval: 2s
+  malware:
+    enabled: true
+    interval: 5s
+  network:
+    enabled: true
+    interval: 2s

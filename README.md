@@ -52,7 +52,7 @@ sudo trapline uninstall --keep-config  # preserves /etc/trapline/
 
 ## What It Watches
 
-Trapline ships with 10 scanner modules. Each runs independently on its own schedule.
+Trapline ships with 13 scanner modules. Each runs independently on its own schedule.
 
 | Module | What it does | Default interval |
 |---|---|---|
@@ -66,6 +66,9 @@ Trapline ships with 10 scanner modules. Each runs independently on its own sched
 | **suid** | SUID/SGID binary detection | 1h |
 | **ssh** | `sshd_config` security validation | 15m |
 | **permissions** | World-writable files, bad ownership, shadow file permissions | 1h |
+| **rootkit** | Kernel module baselining, hidden files, /dev anomalies, promiscuous NICs, deleted-exe processes | 30m |
+| **malware** | Smart ClamAV integration — only scans new/modified files in high-risk dirs | 15m |
+| **network** | Outbound connection monitoring — baselines known remote IPs, alerts on new public destinations | 60s |
 
 ### How It Avoids Tripwire's Noise
 
@@ -187,6 +190,19 @@ modules:
   permissions:
     enabled: true
     interval: 1h
+  rootkit:
+    enabled: true
+    interval: 30m
+  malware:
+    enabled: true
+    interval: 15m
+    # watch_dirs:                # override default high-risk paths
+    #   - /tmp
+    #   - /var/tmp
+    #   - /dev/shm
+  network:
+    enabled: true
+    interval: 60s
 ```
 
 ---
@@ -308,7 +324,10 @@ trapline (single binary)
 │       ├── cron/          # Cron job monitoring
 │       ├── suid/          # SUID/SGID binary detection
 │       ├── ssh/           # sshd_config validation
-│       └── permissions/   # Filesystem permission checks
+│       ├── permissions/   # Filesystem permission checks
+│       ├── rootkit/       # Rootkit indicator detection
+│       ├── malware/       # ClamAV integration (smart scanning)
+│       └── network/       # Outbound connection monitoring
 ├── pkg/
 │   └── finding/           # Shared Finding type, severity levels
 └── e2e/                   # Docker-based end-to-end tests

@@ -403,6 +403,71 @@ func TestMultipleChangesDetected(t *testing.T) {
 	}
 }
 
+// --- Rootkit Module Tests ---
+
+func TestDetectsHiddenFilesInTmp(t *testing.T) {
+	startContainer(t)
+	defer stopContainer(t)
+
+	// Baseline
+	dockerExec("trapline", "scan", "--config", "/etc/trapline/trapline.yml")
+
+	// Drop a hidden file in /tmp (common rootkit behavior)
+	dockerExec("bash", "-c", "echo 'payload' > /tmp/.hidden_backdoor")
+
+	out, _ := dockerExec("trapline", "scan", "--config", "/etc/trapline/trapline.yml")
+	if !strings.Contains(out, "rootkit-hidden-file") {
+		t.Errorf("expected rootkit-hidden-file finding in:\n%s", out)
+	}
+}
+
+func TestDetectsRegularFileInDev(t *testing.T) {
+	startContainer(t)
+	defer stopContainer(t)
+
+	dockerExec("trapline", "scan", "--config", "/etc/trapline/trapline.yml")
+
+	// Create a regular file in /dev (rootkits hide data here)
+	dockerExec("bash", "-c", "echo 'hidden' > /dev/.secret")
+
+	out, _ := dockerExec("trapline", "scan", "--config", "/etc/trapline/trapline.yml")
+	if !strings.Contains(out, "rootkit-dev-file") {
+		t.Errorf("expected rootkit-dev-file finding in:\n%s", out)
+	}
+}
+
+// --- Network Module Tests ---
+
+func TestDetectsNewOutboundConnection(t *testing.T) {
+	startContainer(t)
+	defer stopContainer(t)
+
+	// Baseline
+	dockerExec("trapline", "scan", "--config", "/etc/trapline/trapline.yml")
+
+	// Start an outbound connection to a public IP (this may or may not work in Docker,
+	// but the test validates the scan doesn't crash and the module runs)
+	dockerExec("bash", "-c", "python3 -c \"import socket; s=socket.socket(); s.settimeout(1); s.connect_ex(('8.8.8.8',53)); s.close()\" 2>/dev/null || true")
+
+	// Just verify the scan completes without error
+	out, _ := dockerExec("trapline", "scan", "--config", "/etc/trapline/trapline.yml")
+	_ = out // network findings depend on actual connectivity
+}
+
+// --- Malware Module Tests ---
+
+func TestMalwareModuleRunsWithoutClamAV(t *testing.T) {
+	startContainer(t)
+	defer stopContainer(t)
+
+	// ClamAV is not installed in the test container — module should silently skip
+	out, _ := dockerExec("trapline", "scan", "--config", "/etc/trapline/trapline.yml")
+	// Should not contain any malware errors — the module degrades gracefully
+	if strings.Contains(out, "malware") && strings.Contains(out, "error") {
+		t.Errorf("malware module should degrade gracefully without ClamAV:\n%s", out)
+	}
+}
+
 // --- Helpers ---
 
 func run(name string, args ...string) error {

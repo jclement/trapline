@@ -18,8 +18,8 @@ func TestDefault(t *testing.T) {
 	if cfg.Defaults.Interval != 5*time.Minute {
 		t.Errorf("Default interval = %v, want 5m", cfg.Defaults.Interval)
 	}
-	if len(cfg.Modules) != 10 {
-		t.Errorf("Default modules count = %d, want 10", len(cfg.Modules))
+	if len(cfg.Modules) != 13 {
+		t.Errorf("Default modules count = %d, want 13", len(cfg.Modules))
 	}
 }
 

@@ -143,6 +143,9 @@ func Default() *Config {
 			"suid":           {Enabled: true, Interval: time.Hour},
 			"ssh":            {Enabled: true, Interval: 15 * time.Minute},
 			"permissions":    {Enabled: true, Interval: time.Hour},
+			"rootkit":        {Enabled: true, Interval: 30 * time.Minute},
+			"malware":        {Enabled: true, Interval: 15 * time.Minute},
+			"network":        {Enabled: true, Interval: 60 * time.Second},
 		},
 	}
 }
