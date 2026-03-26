@@ -1,0 +1,19 @@
+services:
+  trapline:
+    container_name: trapline-playground
+    build:
+      context: ..
+      dockerfile: dev/Dockerfile.playground
+    volumes:
+      - ./playground/trapline.yml:/etc/trapline/trapline.yml:ro
+    init: true
+    depends_on:
+      - sink
+    tty: true
+
+  sink:
+    container_name: trapline-playground-sink
+    image: alpine:3
+    command: ["sh", "-c", "apk add --no-cache socat >/dev/null 2>&1 && echo 'Listening for findings on :9999...' && socat -u TCP-LISTEN:9999,reuseaddr,fork STDOUT"]
+    expose:
+      - "9999"

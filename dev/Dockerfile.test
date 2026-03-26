@@ -1,0 +1,10 @@
+FROM golang:1.23-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server \
+    cron \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+CMD ["go", "test", "-tags", "integration", "-v", "./..."]

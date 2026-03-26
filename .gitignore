@@ -1,0 +1,6 @@
+dist/
+trapline
+*.exe
+.DS_Store
+/dev/playground/
+!dev/playground/trapline.yml

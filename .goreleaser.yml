@@ -1,0 +1,26 @@
+version: 2
+
+builds:
+  - goos: [linux]
+    goarch: [amd64, arm64]
+    binary: "trapline_{{ .Os }}_{{ .Arch }}"
+    main: ./cmd/trapline
+    no_unique_dist_dir: true
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+    env:
+      - CGO_ENABLED=0
+
+archives:
+  - format: binary
+
+checksum:
+  name_template: "checksums.txt"
+
+signs:
+  - cmd: cosign
+    args: ["sign-blob", "--yes", "--output-signature=${signature}", "${artifact}"]
+    artifacts: checksum

@@ -1,0 +1,18 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    systemd systemd-sysv \
+    openssh-server \
+    cron \
+    sudo \
+    curl \
+    net-tools \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY dist/trapline /usr/local/bin/trapline
+RUN chmod 755 /usr/local/bin/trapline
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
