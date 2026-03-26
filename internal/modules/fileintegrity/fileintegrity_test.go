@@ -31,7 +31,9 @@ func TestInitAndScanLearningMode(t *testing.T) {
 	cfg := testModuleConfig(t)
 	// Create a test file to watch
 	testFile := filepath.Join(t.TempDir(), "testfile")
-	os.WriteFile(testFile, []byte("hello"), 0644)
+	if err := os.WriteFile(testFile, []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg.Settings["watch_extra"] = []interface{}{testFile}
 
@@ -55,22 +57,30 @@ func TestInitAndScanLearningMode(t *testing.T) {
 func TestDetectsModifiedFile(t *testing.T) {
 	cfg := testModuleConfig(t)
 	testFile := filepath.Join(t.TempDir(), "watched")
-	os.WriteFile(testFile, []byte("original"), 0644)
+	if err := os.WriteFile(testFile, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Backdate the file's mtime so that the mtime-based fast-path in Scan()
 	// reliably detects a change after the subsequent WriteFile.
 	past := time.Now().Add(-2 * time.Second)
-	os.Chtimes(testFile, past, past)
+	if err := os.Chtimes(testFile, past, past); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 	m.watchList = []string{testFile}
 
 	// First scan - baseline
-	m.Scan(context.Background())
+	_, _ = m.Scan(context.Background())
 
 	// Modify file (mtime will be "now", different from the backdated baseline)
-	os.WriteFile(testFile, []byte("modified"), 0644)
+	if err := os.WriteFile(testFile, []byte("modified"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Second scan - should detect modification
 	findings, err := m.Scan(context.Background())
@@ -98,17 +108,21 @@ func TestDetectsModifiedFile(t *testing.T) {
 func TestDetectsRemovedFile(t *testing.T) {
 	cfg := testModuleConfig(t)
 	testFile := filepath.Join(t.TempDir(), "willdelete")
-	os.WriteFile(testFile, []byte("data"), 0644)
+	if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 	m.watchList = []string{testFile}
 
 	// Baseline
-	m.Scan(context.Background())
+	_, _ = m.Scan(context.Background())
 
 	// Remove file
-	os.Remove(testFile)
+	_ = os.Remove(testFile)
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -126,18 +140,22 @@ func TestDetectsNewFile(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	existingFile := filepath.Join(dir, "existing")
-	os.WriteFile(existingFile, []byte("data"), 0644)
+	if err := os.WriteFile(existingFile, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 	m.watchList = []string{filepath.Join(dir, "*")}
 
 	// Baseline with glob
-	m.Scan(context.Background())
+	_, _ = m.Scan(context.Background())
 
 	// Add new file matching glob
 	newFile := filepath.Join(dir, "newfile")
-	os.WriteFile(newFile, []byte("new"), 0644)
+	if err := os.WriteFile(newFile, []byte("new"), 0644); err != nil { t.Fatal(err) }
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -154,20 +172,28 @@ func TestDetectsNewFile(t *testing.T) {
 func TestRebaseline(t *testing.T) {
 	cfg := testModuleConfig(t)
 	testFile := filepath.Join(t.TempDir(), "rebase")
-	os.WriteFile(testFile, []byte("original"), 0644)
+	if err := os.WriteFile(testFile, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 	m.watchList = []string{testFile}
 
 	// Baseline
-	m.Scan(context.Background())
+	_, _ = m.Scan(context.Background())
 
 	// Modify
-	os.WriteFile(testFile, []byte("changed"), 0644)
+	if err := os.WriteFile(testFile, []byte("changed"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Rebaseline
-	m.Rebaseline(context.Background())
+	if err := m.Rebaseline(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	// Scan should be clean
 	findings, _ := m.Scan(context.Background())
@@ -179,11 +205,15 @@ func TestRebaseline(t *testing.T) {
 func TestInotifyDetectsChange(t *testing.T) {
 	cfg := testModuleConfig(t)
 	testFile := filepath.Join(t.TempDir(), "inotify-watched")
-	os.WriteFile(testFile, []byte("original"), 0644)
+	if err := os.WriteFile(testFile, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Backdate the file so the baseline mtime is clearly in the past
 	past := time.Now().Add(-2 * time.Second)
-	os.Chtimes(testFile, past, past)
+	if err := os.Chtimes(testFile, past, past); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
 	if err := m.Init(cfg); err != nil {
@@ -211,7 +241,7 @@ func TestInotifyDetectsChange(t *testing.T) {
 	}
 
 	// Modify file — inotify should detect it
-	os.WriteFile(testFile, []byte("modified-by-inotify"), 0644)
+	if err := os.WriteFile(testFile, []byte("modified-by-inotify"), 0644); err != nil { t.Fatal(err) }
 
 	// Give the watcher goroutine a moment to process the event
 	time.Sleep(200 * time.Millisecond)

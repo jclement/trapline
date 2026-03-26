@@ -21,7 +21,7 @@ func TestCheck(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(release)
+		_ = json.NewEncoder(w).Encode(release)
 	}))
 	defer server.Close()
 
@@ -62,7 +62,7 @@ func TestCopyFile(t *testing.T) {
 	src := filepath.Join(dir, "src")
 	dst := filepath.Join(dir, "dst")
 
-	os.WriteFile(src, []byte("hello world"), 0644)
+	if err := os.WriteFile(src, []byte("hello world"), 0644); err != nil { t.Fatal(err) }
 
 	if err := copyFile(src, dst); err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestCopyFile(t *testing.T) {
 
 func TestDownload(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("binary-content"))
+		_, _ = w.Write([]byte("binary-content"))
 	}))
 	defer server.Close()
 

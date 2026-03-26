@@ -25,10 +25,18 @@ func testModuleConfig(t *testing.T) engine.ModuleConfig {
 func createFakeProc(t *testing.T, dir string, pid int, name string) {
 	t.Helper()
 	pidDir := filepath.Join(dir, fmt.Sprintf("%d", pid))
-	os.MkdirAll(pidDir, 0755)
-	os.WriteFile(filepath.Join(pidDir, "comm"), []byte(name+"\n"), 0644)
-	os.WriteFile(filepath.Join(pidDir, "cmdline"), []byte("/usr/bin/"+name+"\x00"), 0644)
-	os.WriteFile(filepath.Join(pidDir, "status"), []byte("Name:\t"+name+"\nUid:\t0\t0\t0\t0\n"), 0644)
+	if err := os.MkdirAll(pidDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pidDir, "comm"), []byte(name+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pidDir, "cmdline"), []byte("/usr/bin/"+name+"\x00"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pidDir, "status"), []byte("Name:\t"+name+"\nUid:\t0\t0\t0\t0\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestName(t *testing.T) {
@@ -45,7 +53,7 @@ func TestScanLearningMode(t *testing.T) {
 
 	m := New()
 	m.ProcDir = procDir
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil { t.Fatal(err) }
 
 	findings, err := m.Scan(context.Background())
 	if err != nil {
@@ -64,8 +72,8 @@ func TestDetectsUnexpectedProcess(t *testing.T) {
 
 	m := New()
 	m.ProcDir = procDir
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
 
 	// Add unexpected process
 	createFakeProc(t, procDir, 666, "cryptominer")
@@ -97,11 +105,13 @@ func TestDetectsMissingProcess(t *testing.T) {
 
 	m := New()
 	m.ProcDir = procDir
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
 
 	// Remove sshd
-	os.RemoveAll(filepath.Join(procDir, "100"))
+	if err := os.RemoveAll(filepath.Join(procDir, "100")); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -123,7 +133,7 @@ func TestDenyList(t *testing.T) {
 
 	m := New()
 	m.ProcDir = procDir
-	m.Init(cfg)
+	_ = m.Init(cfg)
 
 	// Even in learning mode, deny list should fire
 	findings, _ := m.Scan(context.Background())
@@ -148,11 +158,13 @@ func TestRebaseline(t *testing.T) {
 
 	m := New()
 	m.ProcDir = procDir
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
 
 	createFakeProc(t, procDir, 200, "newproc")
-	m.Rebaseline(context.Background())
+	if err := m.Rebaseline(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 	// Filter out deny-list findings

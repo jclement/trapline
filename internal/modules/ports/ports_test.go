@@ -62,7 +62,7 @@ func TestParseProcNet(t *testing.T) {
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tcp")
-	os.WriteFile(path, []byte(content), 0644)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil { t.Fatal(err) }
 
 	entries, err := parseProcNet(path, "tcp")
 	if err != nil {
@@ -89,7 +89,7 @@ func TestScanWithFakeProc(t *testing.T) {
    0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0
 `
 	tcpPath := filepath.Join(dir, "tcp")
-	os.WriteFile(tcpPath, []byte(tcpContent), 0644)
+	_ = os.WriteFile(tcpPath, []byte(tcpContent), 0644)
 
 	m := New()
 	m.ProcTCP = tcpPath
@@ -122,7 +122,7 @@ func TestDetectsNewPort(t *testing.T) {
 	dir := t.TempDir()
 
 	tcpPath := filepath.Join(dir, "tcp")
-	os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+	_ = os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0
 `), 0644)
 
@@ -132,11 +132,11 @@ func TestDetectsNewPort(t *testing.T) {
 	m.ProcUDP = filepath.Join(dir, "none")
 	m.ProcUDP6 = filepath.Join(dir, "none")
 
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	_, _ = m.Scan(context.Background()) // baseline
 
 	// Add a new port
-	os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+	_ = os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0
    1: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 45678 1 0000000000000000 100 0 0 10 0
 `), 0644)
@@ -158,7 +158,7 @@ func TestDetectsGonePort(t *testing.T) {
 	dir := t.TempDir()
 
 	tcpPath := filepath.Join(dir, "tcp")
-	os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+	_ = os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0
    1: 00000000:0050 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 23456 1 0000000000000000 100 0 0 10 0
 `), 0644)
@@ -169,11 +169,11 @@ func TestDetectsGonePort(t *testing.T) {
 	m.ProcUDP = filepath.Join(dir, "none")
 	m.ProcUDP6 = filepath.Join(dir, "none")
 
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	_, _ = m.Scan(context.Background()) // baseline
 
 	// Remove port 80
-	os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+	_ = os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0
 `), 0644)
 
@@ -194,7 +194,7 @@ func TestRebaseline(t *testing.T) {
 	dir := t.TempDir()
 
 	tcpPath := filepath.Join(dir, "tcp")
-	os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+	_ = os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0
 `), 0644)
 
@@ -204,16 +204,18 @@ func TestRebaseline(t *testing.T) {
 	m.ProcUDP = filepath.Join(dir, "none")
 	m.ProcUDP6 = filepath.Join(dir, "none")
 
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	_, _ = m.Scan(context.Background()) // baseline
 
 	// Add port then rebaseline
-	os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+	_ = os.WriteFile(tcpPath, []byte(`  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0
    1: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 45678 1 0000000000000000 100 0 0 10 0
 `), 0644)
 
-	m.Rebaseline(context.Background())
+	if err := m.Rebaseline(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	findings, _ := m.Scan(context.Background())
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings after rebaseline, got %d", len(findings))

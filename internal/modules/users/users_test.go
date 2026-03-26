@@ -37,9 +37,11 @@ func setupTestFiles(t *testing.T) (string, string, string) {
 	groupPath := filepath.Join(dir, "group")
 	sudoersPath := filepath.Join(dir, "sudoers")
 
-	os.WriteFile(passwdPath, []byte(testPasswd), 0644)
-	os.WriteFile(groupPath, []byte(testGroup), 0644)
-	os.WriteFile(sudoersPath, []byte("root ALL=(ALL:ALL) ALL\n"), 0644)
+	if err := os.WriteFile(passwdPath, []byte(testPasswd), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(groupPath, []byte(testGroup), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(sudoersPath, []byte("root ALL=(ALL:ALL) ALL\n"), 0644); err != nil { t.Fatal(err) }
 
 	return passwdPath, groupPath, sudoersPath
 }
@@ -58,7 +60,7 @@ func TestLearningMode(t *testing.T) {
 	m.PasswdPath = passwdPath
 	m.GroupPath = groupPath
 	m.SudoersPath = sudoersPath
-	m.Init(cfg)
+	_ = m.Init(cfg)
 
 	findings, err := m.Scan(context.Background())
 	if err != nil {
@@ -77,11 +79,11 @@ func TestDetectsNewUser(t *testing.T) {
 	m.PasswdPath = passwdPath
 	m.GroupPath = groupPath
 	m.SudoersPath = sudoersPath
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
 
 	// Add a new user
-	os.WriteFile(passwdPath, []byte(testPasswd+"hacker:x:1001:1001::/home/hacker:/bin/bash\n"), 0644)
+	if err := os.WriteFile(passwdPath, []byte(testPasswd+"hacker:x:1001:1001::/home/hacker:/bin/bash\n"), 0644); err != nil { t.Fatal(err) }
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -106,11 +108,11 @@ func TestDetectsUID0User(t *testing.T) {
 	m.PasswdPath = passwdPath
 	m.GroupPath = groupPath
 	m.SudoersPath = sudoersPath
-	m.Init(cfg)
-	m.Scan(context.Background())
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background())
 
 	// Add user with UID 0
-	os.WriteFile(passwdPath, []byte(testPasswd+"backdoor:x:0:0::/root:/bin/bash\n"), 0644)
+	_ = os.WriteFile(passwdPath, []byte(testPasswd+"backdoor:x:0:0::/root:/bin/bash\n"), 0644)
 
 	findings, _ := m.Scan(context.Background())
 	for _, f := range findings {
@@ -132,11 +134,11 @@ func TestDetectsRemovedUser(t *testing.T) {
 	m.PasswdPath = passwdPath
 	m.GroupPath = groupPath
 	m.SudoersPath = sudoersPath
-	m.Init(cfg)
-	m.Scan(context.Background())
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background())
 
 	// Remove nobody
-	os.WriteFile(passwdPath, []byte("root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n"), 0644)
+	_ = os.WriteFile(passwdPath, []byte("root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n"), 0644)
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -158,11 +160,11 @@ func TestDetectsShellChange(t *testing.T) {
 	m.PasswdPath = passwdPath
 	m.GroupPath = groupPath
 	m.SudoersPath = sudoersPath
-	m.Init(cfg)
-	m.Scan(context.Background())
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background())
 
 	// Change daemon's shell
-	os.WriteFile(passwdPath, []byte("root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/bin/bash\nnobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n"), 0644)
+	_ = os.WriteFile(passwdPath, []byte("root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/bin/bash\nnobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n"), 0644)
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -184,11 +186,11 @@ func TestDetectsSudoersChange(t *testing.T) {
 	m.PasswdPath = passwdPath
 	m.GroupPath = groupPath
 	m.SudoersPath = sudoersPath
-	m.Init(cfg)
-	m.Scan(context.Background())
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background())
 
 	// Modify sudoers
-	os.WriteFile(sudoersPath, []byte("root ALL=(ALL:ALL) ALL\nhacker ALL=(ALL) NOPASSWD:ALL\n"), 0644)
+	_ = os.WriteFile(sudoersPath, []byte("root ALL=(ALL:ALL) ALL\nhacker ALL=(ALL) NOPASSWD:ALL\n"), 0644)
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -213,11 +215,13 @@ func TestRebaseline(t *testing.T) {
 	m.PasswdPath = passwdPath
 	m.GroupPath = groupPath
 	m.SudoersPath = sudoersPath
-	m.Init(cfg)
-	m.Scan(context.Background())
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background())
 
-	os.WriteFile(passwdPath, []byte(testPasswd+"newuser:x:1001:1001::/home/newuser:/bin/bash\n"), 0644)
-	m.Rebaseline(context.Background())
+	_ = os.WriteFile(passwdPath, []byte(testPasswd+"newuser:x:1001:1001::/home/newuser:/bin/bash\n"), 0644)
+	if err := m.Rebaseline(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 	if len(findings) != 0 {
@@ -228,7 +232,7 @@ func TestRebaseline(t *testing.T) {
 func TestParsePasswd(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "passwd")
-	os.WriteFile(path, []byte(testPasswd), 0644)
+	_ = os.WriteFile(path, []byte(testPasswd), 0644)
 
 	users, err := parsePasswd(path)
 	if err != nil {
@@ -245,7 +249,7 @@ func TestParsePasswd(t *testing.T) {
 func TestParseGroup(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "group")
-	os.WriteFile(path, []byte(testGroup), 0644)
+	_ = os.WriteFile(path, []byte(testGroup), 0644)
 
 	groups, err := parseGroup(path)
 	if err != nil {

@@ -205,7 +205,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	if !m.baselineLoaded {
 		m.baseline.Containers = current
 		m.baselineLoaded = true
-		m.store.Save(m.Name(), m.baseline)
+		_ = m.store.Save(m.Name(), m.baseline)
 		return nil, nil
 	}
 
@@ -292,7 +292,7 @@ func (m *Module) listContainers(ctx context.Context) ([]Container, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var containers []Container
 	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {

@@ -199,7 +199,7 @@ func New(cfg Config) (*Server, error) {
 	// Run idempotent schema migrations (CREATE TABLE IF NOT EXISTS / CREATE INDEX
 	// IF NOT EXISTS). On failure, close the database to avoid leaking the handle.
 	if err := migrateServer(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrating database: %w", err)
 	}
 
@@ -555,7 +555,7 @@ func (s *Server) ingestFindings(w http.ResponseWriter, r *http.Request) {
 
 	// Return the count of successfully ingested findings as JSON.
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"ingested": ingested})
+	_ = json.NewEncoder(w).Encode(map[string]int{"ingested": ingested})
 }
 
 // listFindings handles GET /api/findings. It returns a JSON array of findings
@@ -623,7 +623,7 @@ func (s *Server) listFindings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	// FindingRow is the API response shape for a single finding. It mirrors the
 	// database columns selected above. Detail is returned as a raw JSON string
@@ -643,12 +643,12 @@ func (s *Server) listFindings(w http.ResponseWriter, r *http.Request) {
 	var results []FindingRow
 	for rows.Next() {
 		var f FindingRow
-		rows.Scan(&f.Hostname, &f.Module, &f.FindingID, &f.Severity, &f.Status, &f.Summary, &f.Detail, &f.LastSeen, &f.HitCount)
+		_ = rows.Scan(&f.Hostname, &f.Module, &f.FindingID, &f.Severity, &f.Status, &f.Summary, &f.Detail, &f.LastSeen, &f.HitCount)
 		results = append(results, f)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	_ = json.NewEncoder(w).Encode(results)
 }
 
 // handleHosts handles GET /api/hosts. It returns a JSON array of host summaries,
@@ -687,7 +687,7 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	// HostRow is the API response shape for a single host summary.
 	type HostRow struct {
@@ -701,12 +701,12 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	var results []HostRow
 	for rows.Next() {
 		var h HostRow
-		rows.Scan(&h.Hostname, &h.Total, &h.Critical, &h.High, &h.LastReport)
+		_ = rows.Scan(&h.Hostname, &h.Total, &h.Critical, &h.High, &h.LastReport)
 		results = append(results, h)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	_ = json.NewEncoder(w).Encode(results)
 }
 
 // handleStats handles GET /api/stats. It returns aggregate statistics for the
@@ -731,13 +731,13 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	// Four separate scalar queries for dashboard stat cards.
 	// Each filters to active/new status to match what the dashboard displays.
 	var totalHosts, totalFindings, critical, high int
-	s.db.QueryRow("SELECT COUNT(DISTINCT hostname) FROM findings WHERE status IN ('active','new')").Scan(&totalHosts)
-	s.db.QueryRow("SELECT COUNT(*) FROM findings WHERE status IN ('active','new')").Scan(&totalFindings)
-	s.db.QueryRow("SELECT COUNT(*) FROM findings WHERE status IN ('active','new') AND severity = 'critical'").Scan(&critical)
-	s.db.QueryRow("SELECT COUNT(*) FROM findings WHERE status IN ('active','new') AND severity = 'high'").Scan(&high)
+	_ = s.db.QueryRow("SELECT COUNT(DISTINCT hostname) FROM findings WHERE status IN ('active','new')").Scan(&totalHosts)
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM findings WHERE status IN ('active','new')").Scan(&totalFindings)
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM findings WHERE status IN ('active','new') AND severity = 'critical'").Scan(&critical)
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM findings WHERE status IN ('active','new') AND severity = 'high'").Scan(&high)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{
+	_ = json.NewEncoder(w).Encode(map[string]int{
 		"hosts":    totalHosts,
 		"findings": totalFindings,
 		"critical": critical,
@@ -786,7 +786,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		// a response has been started by looking at the status code.
 		if w.Header().Get("Content-Type") == "" {
 			w.Header().Set("Content-Type", "text/html")
-			loginTmpl.Execute(w, map[string]string{"WebRoot": s.webRoot})
+			_ = loginTmpl.Execute(w, map[string]string{"WebRoot": s.webRoot})
 		}
 		return
 	}
@@ -802,7 +802,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// JavaScript API calls rely on the cookie for authentication (no password
 	// in the URL).
 	w.Header().Set("Content-Type", "text/html")
-	dashboardTmpl.Execute(w, map[string]string{
+	_ = dashboardTmpl.Execute(w, map[string]string{
 		"WebRoot": s.webRoot,
 	})
 }

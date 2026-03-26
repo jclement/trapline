@@ -61,7 +61,10 @@ func TestSaveAndLoad(t *testing.T) {
 }
 
 func TestLoadMissing(t *testing.T) {
-	store, _ := NewStore(t.TempDir())
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var loaded testBaseline
 	ok, err := store.Load("nonexistent", &loaded)
@@ -74,22 +77,32 @@ func TestLoadMissing(t *testing.T) {
 }
 
 func TestExists(t *testing.T) {
-	store, _ := NewStore(t.TempDir())
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if store.Exists("nope") {
 		t.Error("Exists() = true for missing baseline")
 	}
 
-	store.Save("test", map[string]string{"a": "b"})
+	if err := store.Save("test", map[string]string{"a": "b"}); err != nil {
+		t.Fatal(err)
+	}
 	if !store.Exists("test") {
 		t.Error("Exists() = false after Save")
 	}
 }
 
 func TestDelete(t *testing.T) {
-	store, _ := NewStore(t.TempDir())
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	store.Save("test", "data")
+	if err := store.Save("test", "data"); err != nil {
+		t.Fatal(err)
+	}
 	if !store.Exists("test") {
 		t.Fatal("baseline should exist after save")
 	}
@@ -108,10 +121,13 @@ func TestDelete(t *testing.T) {
 }
 
 func TestSaveOverwrite(t *testing.T) {
-	store, _ := NewStore(t.TempDir())
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	store.Save("test", testBaseline{Count: 1})
-	store.Save("test", testBaseline{Count: 2})
+	_ = store.Save("test", testBaseline{Count: 1})
+	_ = store.Save("test", testBaseline{Count: 2})
 
 	var loaded testBaseline
 	ok, _ := store.Load("test", &loaded)
@@ -124,14 +140,17 @@ func TestSaveOverwrite(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	store, _ := NewStore(t.TempDir())
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
 		go func(n int) {
-			store.Save("concurrent", testBaseline{Count: n})
+			_ = store.Save("concurrent", testBaseline{Count: n})
 			var b testBaseline
-			store.Load("concurrent", &b)
+			_, _ = store.Load("concurrent", &b)
 			done <- true
 		}(i)
 	}

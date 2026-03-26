@@ -229,7 +229,7 @@ func (m *Module) startWatcher() {
 	}
 
 	if watchCount == 0 {
-		w.Close()
+		_ = w.Close()
 		return
 	}
 
@@ -396,7 +396,7 @@ func (m *Module) Close() {
 		m.cancelWatch()
 	}
 	if m.watcher != nil {
-		m.watcher.Close()
+		_ = m.watcher.Close()
 	}
 }
 
@@ -459,7 +459,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	if !m.baselineLoaded {
 		m.baseline = current
 		m.baselineLoaded = true
-		m.store.Save(m.Name(), m.baseline)
+		_ = m.store.Save(m.Name(), m.baseline)
 		return nil, nil
 	}
 
@@ -623,7 +623,7 @@ func scanFile(path string) (FileEntry, error) {
 			Group: group,
 		}, nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Compute SHA-256 hash by streaming file content through the hasher.
 	// This avoids loading the entire file into memory.

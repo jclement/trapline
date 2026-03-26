@@ -32,7 +32,7 @@ func TestScanEmptyDir(t *testing.T) {
 	m := New()
 	m.scanPaths = []string{dir}
 	m.excludePaths = nil
-	m.Init(cfg)
+	_ = m.Init(cfg)
 
 	findings, err := m.Scan(context.Background())
 	if err != nil {
@@ -50,13 +50,15 @@ func TestDetectsNewSuid(t *testing.T) {
 	m := New()
 	m.scanPaths = []string{dir}
 	m.excludePaths = nil
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline (empty)
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline (empty)
 
 	// Create a SUID binary
 	suidFile := filepath.Join(dir, "escalate")
-	os.WriteFile(suidFile, []byte("#!/bin/sh\n"), 0755)
-	os.Chmod(suidFile, 0755|os.ModeSetuid)
+	_ = os.WriteFile(suidFile, []byte("#!/bin/sh\n"), 0755)
+	if err := os.Chmod(suidFile, 0755|os.ModeSetuid); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -75,16 +77,18 @@ func TestDetectsRemovedSuid(t *testing.T) {
 	dir := t.TempDir()
 
 	suidFile := filepath.Join(dir, "legit")
-	os.WriteFile(suidFile, []byte("#!/bin/sh\n"), 0755)
-	os.Chmod(suidFile, 0755|os.ModeSetuid)
+	_ = os.WriteFile(suidFile, []byte("#!/bin/sh\n"), 0755)
+	if err := os.Chmod(suidFile, 0755|os.ModeSetuid); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
 	m.scanPaths = []string{dir}
 	m.excludePaths = nil
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
 
-	os.Remove(suidFile)
+	_ = os.Remove(suidFile)
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -102,19 +106,21 @@ func TestExcludePaths(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	excludeDir := filepath.Join(dir, "docker")
-	os.MkdirAll(excludeDir, 0755)
+	if err := os.MkdirAll(excludeDir, 0755); err != nil { t.Fatal(err) }
 
 	suidFile := filepath.Join(excludeDir, "ignore-me")
-	os.WriteFile(suidFile, []byte("#!/bin/sh\n"), 0755)
-	os.Chmod(suidFile, 0755|os.ModeSetuid)
+	_ = os.WriteFile(suidFile, []byte("#!/bin/sh\n"), 0755)
+	if err := os.Chmod(suidFile, 0755|os.ModeSetuid); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
 	m.scanPaths = []string{dir}
 	m.excludePaths = []string{excludeDir}
-	m.Init(cfg)
+	_ = m.Init(cfg)
 
 	// Even in baseline capture, excluded files shouldn't be tracked
-	m.Scan(context.Background())
+	_, _ = m.Scan(context.Background())
 	if _, ok := m.baseline.Entries[suidFile]; ok {
 		t.Error("excluded SUID binary should not be in baseline")
 	}
@@ -127,14 +133,16 @@ func TestRebaseline(t *testing.T) {
 	m := New()
 	m.scanPaths = []string{dir}
 	m.excludePaths = nil
-	m.Init(cfg)
-	m.Scan(context.Background())
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background())
 
 	suidFile := filepath.Join(dir, "new-legit")
-	os.WriteFile(suidFile, []byte("x"), 0755)
-	os.Chmod(suidFile, 0755|os.ModeSetuid)
+	_ = os.WriteFile(suidFile, []byte("x"), 0755)
+	if err := os.Chmod(suidFile, 0755|os.ModeSetuid); err != nil { t.Fatal(err) }
 
-	m.Rebaseline(context.Background())
+	if err := m.Rebaseline(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	findings, _ := m.Scan(context.Background())
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings after rebaseline, got %d", len(findings))
@@ -148,11 +156,11 @@ func TestCancellation(t *testing.T) {
 	m := New()
 	m.scanPaths = []string{dir}
 	m.excludePaths = nil
-	m.Init(cfg)
+	_ = m.Init(cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
 	// Should not hang
-	m.Scan(ctx)
+	_, _ = m.Scan(ctx)
 }

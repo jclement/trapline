@@ -43,11 +43,11 @@ func TestSecureConfig(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "sshd_config")
-	os.WriteFile(configPath, []byte(secureConfig), 0644)
+	if err := os.WriteFile(configPath, []byte(secureConfig), 0644); err != nil { t.Fatal(err) }
 
 	m := New()
 	m.ConfigPath = configPath
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil { t.Fatal(err) }
 
 	findings, err := m.Scan(context.Background())
 	if err != nil {
@@ -65,11 +65,11 @@ func TestInsecureConfig(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "sshd_config")
-	os.WriteFile(configPath, []byte(insecureConfig), 0644)
+	if err := os.WriteFile(configPath, []byte(insecureConfig), 0644); err != nil { t.Fatal(err) }
 
 	m := New()
 	m.ConfigPath = configPath
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil { t.Fatal(err) }
 
 	findings, _ := m.Scan(context.Background())
 
@@ -88,14 +88,14 @@ func TestDetectsConfigChange(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "sshd_config")
-	os.WriteFile(configPath, []byte(secureConfig), 0644)
+	if err := os.WriteFile(configPath, []byte(secureConfig), 0644); err != nil { t.Fatal(err) }
 
 	m := New()
 	m.ConfigPath = configPath
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	_, _ = m.Scan(context.Background()) // baseline
 
-	os.WriteFile(configPath, []byte(secureConfig+"AllowUsers admin\n"), 0644)
+	if err := os.WriteFile(configPath, []byte(secureConfig+"AllowUsers admin\n"), 0644); err != nil { t.Fatal(err) }
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -113,15 +113,17 @@ func TestRebaseline(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "sshd_config")
-	os.WriteFile(configPath, []byte(secureConfig), 0644)
+	if err := os.WriteFile(configPath, []byte(secureConfig), 0644); err != nil { t.Fatal(err) }
 
 	m := New()
 	m.ConfigPath = configPath
-	m.Init(cfg)
-	m.Scan(context.Background())
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background())
 
-	os.WriteFile(configPath, []byte(secureConfig+"Match User deploy\n"), 0644)
-	m.Rebaseline(context.Background())
+	_ = os.WriteFile(configPath, []byte(secureConfig+"Match User deploy\n"), 0644)
+	if err := m.Rebaseline(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 	for _, f := range findings {
@@ -145,7 +147,7 @@ func TestMissingConfig(t *testing.T) {
 	cfg := testModuleConfig(t)
 	m := New()
 	m.ConfigPath = "/nonexistent/sshd_config"
-	m.Init(cfg)
+	_ = m.Init(cfg)
 
 	// Should not error, just return no findings
 	findings, err := m.Scan(context.Background())

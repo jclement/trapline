@@ -259,7 +259,7 @@ func Doctor() *DoctorResult {
 		if err != nil {
 			return CheckWarning, "TCP sink at 127.0.0.1:51888 not reachable", "Check that Fluent Bit is running"
 		}
-		conn.Close()
+		_ = conn.Close()
 		return CheckPassed, "TCP sink at 127.0.0.1:51888 reachable", ""
 	})
 

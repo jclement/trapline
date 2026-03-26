@@ -135,8 +135,12 @@ func TestDetectsNewOutbound(t *testing.T) {
 
 	tcpPath := writeProcFile(t, dir, "tcp", content)
 	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	} // baseline
 
 	// Add new connection to 93.184.216.34:80
 	// 93.184.216.34 = 5D.B8.D8.22 -> little-endian 22D8B85D
@@ -169,8 +173,12 @@ func TestIgnoresLoopback(t *testing.T) {
 	content := procHeader
 	tcpPath := writeProcFile(t, dir, "tcp", content)
 	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	} // baseline
 
 	// Add connection to 127.0.0.1:8080
 	// 127.0.0.1 = 7F.00.00.01 -> little-endian 0100007F
@@ -194,8 +202,12 @@ func TestIgnoresPrivateRanges(t *testing.T) {
 	content := procHeader
 	tcpPath := writeProcFile(t, dir, "tcp", content)
 	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	} // baseline
 
 	// 10.0.0.1 = 0A.00.00.01 -> little-endian 0100000A
 	// 172.16.0.1 = AC.10.00.01 -> little-endian 010010AC
@@ -222,8 +234,8 @@ func TestMultipleNewConnections(t *testing.T) {
 	content := procHeader
 	tcpPath := writeProcFile(t, dir, "tcp", content)
 	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	_, _ = m.Scan(context.Background()) // baseline
 
 	// Two new public IPs: 216.58.196.78 and 93.184.216.34
 	content2 := procHeader +
@@ -253,8 +265,8 @@ func TestRebaseline(t *testing.T) {
 	content := procHeader
 	tcpPath := writeProcFile(t, dir, "tcp", content)
 	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline (empty)
+	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	_, _ = m.Scan(context.Background()) // baseline (empty)
 
 	// Add a new public IP
 	content2 := procHeader +
@@ -300,7 +312,7 @@ func TestIPv6Parsing(t *testing.T) {
 
 	tcp6Path := writeProcFile(t, dir, "tcp6", tcp6Content)
 	m := newTestModule(t, tcpPath, tcp6Path)
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil { t.Fatal(err) }
 
 	// First scan = learning
 	findings, err := m.Scan(context.Background())
@@ -362,8 +374,8 @@ func TestSameIPDifferentPort(t *testing.T) {
 		"   0: 0F02000A:9C40 4EC43AD8:01BB 01 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0\n"
 	tcpPath := writeProcFile(t, dir, "tcp", content)
 	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
 
 	// Same IP, different port (80 = 0x0050)
 	content2 := procHeader +

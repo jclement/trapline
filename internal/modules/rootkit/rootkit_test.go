@@ -18,10 +18,18 @@ func initModule(t *testing.T) (*Module, string) {
 	m.TmpDirs = []string{filepath.Join(tmp, "tmp1")}
 	m.DevDir = filepath.Join(tmp, "dev")
 
-	os.MkdirAll(m.ProcDir, 0755)
-	os.MkdirAll(m.SysDir, 0755)
-	os.MkdirAll(m.TmpDirs[0], 0755)
-	os.MkdirAll(m.DevDir, 0755)
+	if err := os.MkdirAll(m.ProcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(m.SysDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(m.TmpDirs[0], 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(m.DevDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	baselinesDir := filepath.Join(tmp, "baselines")
 	cfg := engine.ModuleConfig{
@@ -121,10 +129,18 @@ func TestDetectsHiddenFiles(t *testing.T) {
 func TestIgnoresKnownHiddenFiles(t *testing.T) {
 	m, _ := initModule(t)
 
-	os.MkdirAll(filepath.Join(m.TmpDirs[0], ".X11-unix"), 0755)
-	os.MkdirAll(filepath.Join(m.TmpDirs[0], ".ICE-unix"), 0755)
-	os.MkdirAll(filepath.Join(m.TmpDirs[0], ".font-unix"), 0755)
-	os.MkdirAll(filepath.Join(m.TmpDirs[0], ".XIM-unix"), 0755)
+	if err := os.MkdirAll(filepath.Join(m.TmpDirs[0], ".X11-unix"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(m.TmpDirs[0], ".ICE-unix"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(m.TmpDirs[0], ".font-unix"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(m.TmpDirs[0], ".XIM-unix"), 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	writeFile(t, filepath.Join(m.ProcDir, "modules"), "")
 
@@ -170,8 +186,10 @@ func TestDetectsFilesInDev(t *testing.T) {
 func TestIgnoresDeviceFiles(t *testing.T) {
 	m, _ := initModule(t)
 
-	os.Symlink("/dev/null", filepath.Join(m.DevDir, "link_to_null"))
-	os.MkdirAll(filepath.Join(m.DevDir, "subdir"), 0755)
+	if err := os.Symlink("/dev/null", filepath.Join(m.DevDir, "link_to_null")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(m.DevDir, "subdir"), 0755); err != nil { t.Fatal(err) }
 
 	writeFile(t, filepath.Join(m.ProcDir, "modules"), "")
 
@@ -194,8 +212,12 @@ func TestDetectsDeletedExe(t *testing.T) {
 	m, _ := initModule(t)
 
 	pidDir := filepath.Join(m.ProcDir, "1234")
-	os.MkdirAll(pidDir, 0755)
-	os.Symlink("/usr/bin/something (deleted)", filepath.Join(pidDir, "exe"))
+	if err := os.MkdirAll(pidDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/usr/bin/something (deleted)", filepath.Join(pidDir, "exe")); err != nil {
+		t.Fatal(err)
+	}
 
 	writeFile(t, filepath.Join(m.ProcDir, "modules"), "")
 
@@ -222,7 +244,7 @@ func TestPromiscuousInterface(t *testing.T) {
 	m, _ := initModule(t)
 
 	ethDir := filepath.Join(m.SysDir, "class", "net", "eth0")
-	os.MkdirAll(ethDir, 0755)
+	if err := os.MkdirAll(ethDir, 0755); err != nil { t.Fatal(err) }
 	writeFile(t, filepath.Join(ethDir, "flags"), "0x1103")
 
 	writeFile(t, filepath.Join(m.ProcDir, "modules"), "")
@@ -250,7 +272,9 @@ func TestNormalInterface(t *testing.T) {
 	m, _ := initModule(t)
 
 	ethDir := filepath.Join(m.SysDir, "class", "net", "eth0")
-	os.MkdirAll(ethDir, 0755)
+	if err := os.MkdirAll(ethDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, filepath.Join(ethDir, "flags"), "0x1003")
 
 	writeFile(t, filepath.Join(m.ProcDir, "modules"), "")

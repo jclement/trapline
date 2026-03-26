@@ -152,7 +152,7 @@ func (s *Store) Save(module string, v interface{}) error {
 
 	if err := os.Rename(tmp, s.path(module)); err != nil {
 		// Clean up the orphaned temp file on rename failure.
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("replacing baseline for %s: %w", module, err)
 	}
 

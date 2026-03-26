@@ -244,7 +244,7 @@ func cmdRun(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Prune stale ignores on startup (60 days)
 	if pruned, _ := db.PruneStaleIgnores(60 * 24 * time.Hour); pruned > 0 {
@@ -255,7 +255,7 @@ func cmdRun(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("setting up outputs: %w", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Add dashboard sink if configured
 	mgr.AddDashboardSink(cfg.Dashboard.URL, cfg.Dashboard.Secret)
@@ -314,7 +314,7 @@ func cmdScan(configPath string, args []string) error {
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var moduleName string
 	follow := false
@@ -411,7 +411,7 @@ func cmdScanFollow(cfg *config.Config, db *store.Store) error {
 	if err != nil {
 		return err
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	handler := func(f *finding.Finding) {
 		hash, ignored, _ := db.RecordFinding(f)
@@ -458,13 +458,6 @@ func cmdStatus(configPath string) error {
 	}
 
 	cfg, cfgErr := loadConfig(configPath)
-
-	type modInfo struct {
-		name     string
-		enabled  bool
-		interval string
-		detail   string
-	}
 
 	moduleNames := []string{
 		"file-integrity", "packages", "ports", "processes",
@@ -517,7 +510,7 @@ func cmdStatus(configPath string) error {
 				if ignores, err := db.ListIgnores(); err == nil && len(ignores) > 0 {
 					fmt.Printf("\n%s\n", tui.Dimmed.Render(fmt.Sprintf("  %d finding(s) currently ignored", len(ignores))))
 				}
-				db.Close()
+				_ = db.Close()
 			}
 		}
 	} else {
@@ -650,7 +643,7 @@ func cmdIgnore(configPath string, args []string) error {
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if len(args) == 0 {
 		fmt.Println("Usage:")
@@ -773,7 +766,7 @@ func cmdUninstall(args []string) error {
 	if !confirmed {
 		fmt.Print("Remove trapline and all data? [y/N] ")
 		var answer string
-		fmt.Scanln(&answer)
+		_, _ = fmt.Scanln(&answer)
 		if strings.ToLower(answer) != "y" {
 			fmt.Println("Cancelled.")
 			return nil
@@ -865,7 +858,7 @@ func cmdFindings(configPath string, args []string) error {
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Check for --stored flag (show from DB instead of live scan)
 	useDB := false
@@ -1134,7 +1127,7 @@ func cmdServer(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	if tui.IsTTY() {
 		fmt.Println(tui.FormatBanner(version, taglines.Random()))

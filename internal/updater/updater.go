@@ -158,7 +158,7 @@ func (u *Updater) Check(ctx context.Context) (*CheckResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("checking for updates: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
@@ -230,7 +230,7 @@ func (u *Updater) Apply(ctx context.Context, result *CheckResult) error {
 	// attacks (full protection requires cosign verification).
 	if result.ChecksumURL != "" {
 		if err := u.verifyChecksum(ctx, result.ChecksumURL, tmpPath); err != nil {
-			os.Remove(tmpPath) // clean up the failed download
+			_ = os.Remove(tmpPath) // clean up the failed download
 			return fmt.Errorf("checksum verification: %w", err)
 		}
 	}
@@ -240,21 +240,21 @@ func (u *Updater) Apply(ctx context.Context, result *CheckResult) error {
 	// rename) so the current binary remains in place until the atomic rename.
 	backupPath := u.BinaryPath + ".bak"
 	if err := copyFile(u.BinaryPath, backupPath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("backing up current binary: %w", err)
 	}
 
 	// Step 4: Set executable permissions before the rename so the binary is
 	// immediately executable once it lands at the final path.
 	if err := os.Chmod(tmpPath, 0755); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 
 	// Step 5: Atomic replace via rename(2). On Linux, this is atomic on the
 	// same filesystem — the old binary is replaced in a single operation.
 	if err := os.Rename(tmpPath, u.BinaryPath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("replacing binary: %w", err)
 	}
 
@@ -274,7 +274,7 @@ func (u *Updater) download(ctx context.Context, url, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download returned %d", resp.StatusCode)
@@ -284,7 +284,7 @@ func (u *Updater) download(ctx context.Context, url, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Stream the body directly to disk to avoid holding the entire binary
 	// in memory.
@@ -311,7 +311,7 @@ func (u *Updater) verifyChecksum(ctx context.Context, checksumURL, filePath stri
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -339,7 +339,7 @@ func (u *Updater) verifyChecksum(ctx context.Context, checksumURL, filePath stri
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -363,13 +363,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	_, err = io.Copy(out, in)
 	return err

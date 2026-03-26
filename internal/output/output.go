@@ -366,7 +366,7 @@ func (s *FileSink) Emit(f *finding.Finding) error {
 // best-effort basis: if the new file cannot be opened, the sink falls back to
 // reopening the .1 file so that subsequent writes do not panic on a nil handle.
 func (s *FileSink) rotate() {
-	s.f.Close()
+	_ = s.f.Close()
 
 	// Shift existing backups: .2 -> .3, .1 -> .2, etc.
 	// Iterate from highest to lowest so each rename target is free.
@@ -375,15 +375,15 @@ func (s *FileSink) rotate() {
 		dst := fmt.Sprintf("%s.%d", s.path, i+1)
 		if i == s.maxBackups {
 			// The oldest allowed backup -- remove it to make room.
-			os.Remove(src) // remove oldest
+			_ = os.Remove(src) // remove oldest
 		} else {
 			// Shift this backup up by one position.
-			os.Rename(src, dst)
+			_ = os.Rename(src, dst)
 		}
 	}
 
 	// Rename current log file to the first backup slot (.1).
-	os.Rename(s.path, s.path+".1")
+	_ = os.Rename(s.path, s.path+".1")
 
 	// Open a fresh, empty log file at the original path.
 	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
@@ -509,7 +509,7 @@ func (s *TCPSink) Emit(f *finding.Finding) error {
 	if err != nil {
 		// Connection lost mid-write. Close the dead connection so the next
 		// Emit call will attempt to reconnect, and buffer the current data.
-		s.conn.Close()
+		_ = s.conn.Close()
 		s.conn = nil
 		s.bufferData(data)
 		return fmt.Errorf("tcp write: %w", err)
@@ -641,7 +641,7 @@ func (s *WebhookSink) Emit(f *finding.Finding) error {
 	if err != nil {
 		return fmt.Errorf("webhook post: %w", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Record the send time so subsequent identical findings are suppressed
 	// until the cooldown period elapses.
@@ -742,7 +742,7 @@ func (s *DashboardSink) flush(batch []*finding.Finding) error {
 	if err != nil {
 		return fmt.Errorf("dashboard post: %w", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("dashboard returned %d", resp.StatusCode)

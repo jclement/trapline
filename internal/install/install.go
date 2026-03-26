@@ -153,7 +153,7 @@ func Install(version string, defaultConfig []byte, noStart bool) error {
 		if _, err := os.Stat(BinaryPath); err == nil {
 			// Backup the existing binary for rollback. This is a simple rename
 			// rather than a copy to avoid doubling disk usage for large binaries.
-			os.Rename(BinaryPath, BinaryPath+".bak")
+			_ = os.Rename(BinaryPath, BinaryPath+".bak")
 		}
 		if err := copyBinary(self, BinaryPath); err != nil {
 			return fmt.Errorf("copying binary: %w", err)
@@ -212,14 +212,14 @@ func Install(version string, defaultConfig []byte, noStart bool) error {
 	// hook triggers automatic rebaseline after package operations. On non-dpkg
 	// systems this step is silently skipped.
 	if _, err := exec.LookPath("dpkg"); err == nil {
-		os.WriteFile(AptHookPath, []byte(AptHook), 0644)
+		_ = os.WriteFile(AptHookPath, []byte(AptHook), 0644)
 		fmt.Println("  ✓ Apt hook installed")
 	}
 
 	// Step 6: Reload systemd to pick up the new/updated unit file, then
 	// enable the service so it starts automatically on boot.
-	exec.Command("systemctl", "daemon-reload").Run()
-	exec.Command("systemctl", "enable", "trapline").Run()
+	_ = exec.Command("systemctl", "daemon-reload").Run()
+	_ = exec.Command("systemctl", "enable", "trapline").Run()
 	fmt.Println("  ✓ Service enabled")
 
 	// Step 7: Optionally start the service immediately. The noStart flag
@@ -252,40 +252,40 @@ func Uninstall(keepConfig bool) error {
 	fmt.Println("Uninstalling trapline...")
 
 	// Stop and disable the systemd service before removing any files.
-	exec.Command("systemctl", "stop", "trapline").Run()
-	exec.Command("systemctl", "disable", "trapline").Run()
+	_ = exec.Command("systemctl", "stop", "trapline").Run()
+	_ = exec.Command("systemctl", "disable", "trapline").Run()
 	fmt.Println("  ✓ Service stopped and disabled")
 
 	// Remove the systemd unit file and reload the daemon so systemd forgets
 	// about the service entirely.
-	os.Remove(ServicePath)
-	exec.Command("systemctl", "daemon-reload").Run()
+	_ = os.Remove(ServicePath)
+	_ = exec.Command("systemctl", "daemon-reload").Run()
 	fmt.Println("  ✓ Systemd unit removed")
 
 	// Remove the APT hook (no-op if it was never installed).
-	os.Remove(AptHookPath)
+	_ = os.Remove(AptHookPath)
 
 	// Remove state directory (baselines, locks, scanner state).
-	os.RemoveAll(StateDir)
+	_ = os.RemoveAll(StateDir)
 	fmt.Println("  ✓ State and baselines removed")
 
 	// Remove log files.
-	os.RemoveAll(LogDir)
+	_ = os.RemoveAll(LogDir)
 	fmt.Println("  ✓ Logs removed")
 
 	// Remove configuration only if the operator has not requested preservation.
 	// Keeping config allows a quick reinstall with the same settings.
 	if !keepConfig {
-		os.RemoveAll(ConfigDir)
+		_ = os.RemoveAll(ConfigDir)
 		fmt.Println("  ✓ Configuration removed")
 	} else {
 		fmt.Printf("  ✓ Configuration preserved at %s\n", ConfigDir)
 	}
 
 	// Remove the binary, its backup, and the runtime lock file.
-	os.Remove(BinaryPath)
-	os.Remove(BinaryPath + ".bak")
-	os.Remove(LockPath)
+	_ = os.Remove(BinaryPath)
+	_ = os.Remove(BinaryPath + ".bak")
+	_ = os.Remove(LockPath)
 	fmt.Println("  ✓ Binary removed")
 
 	fmt.Println("\nTrapline has been completely uninstalled.")

@@ -15,7 +15,7 @@ func testStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 
@@ -74,9 +74,9 @@ func TestRecordUpdatesHitCount(t *testing.T) {
 	s := testStore(t)
 	f := testFinding()
 
-	s.RecordFinding(f)
-	s.RecordFinding(f)
-	s.RecordFinding(f)
+	_, _, _ = s.RecordFinding(f)
+	_, _, _ = s.RecordFinding(f)
+	_, _, _ = s.RecordFinding(f)
 
 	findings, _ := s.ListFindings()
 	if len(findings) != 1 {
@@ -108,8 +108,8 @@ func TestUnignoreFinding(t *testing.T) {
 	f := testFinding()
 
 	hash, _, _ := s.RecordFinding(f)
-	s.IgnoreFinding(hash, "temp")
-	s.UnignoreFinding(hash)
+	_ = s.IgnoreFinding(hash, "temp")
+	_ = s.UnignoreFinding(hash)
 
 	_, ignored, _ := s.RecordFinding(f)
 	if ignored {
@@ -130,7 +130,7 @@ func TestListIgnores(t *testing.T) {
 	f := testFinding()
 
 	hash, _, _ := s.RecordFinding(f)
-	s.IgnoreFinding(hash, "approved change")
+	_ = s.IgnoreFinding(hash, "approved change")
 
 	ignores, err := s.ListIgnores()
 	if err != nil {
@@ -150,8 +150,8 @@ func TestListIgnores(t *testing.T) {
 func TestListFindings(t *testing.T) {
 	s := testStore(t)
 
-	s.RecordFinding(testFinding())
-	s.RecordFinding(&finding.Finding{
+	_, _, _ = s.RecordFinding(testFinding())
+	_, _, _ = s.RecordFinding(&finding.Finding{
 		Module: "ssh", FindingID: "ssh-config-changed",
 		Severity: finding.SeverityHigh, Summary: "ssh changed",
 	})
@@ -174,7 +174,7 @@ func TestIsIgnored(t *testing.T) {
 		t.Error("should not be ignored initially")
 	}
 
-	s.IgnoreFinding(hash, "")
+	_ = s.IgnoreFinding(hash, "")
 	if !s.IsIgnored(hash) {
 		t.Error("should be ignored after IgnoreFinding")
 	}
@@ -184,12 +184,12 @@ func TestPruneStaleIgnores(t *testing.T) {
 	s := testStore(t)
 
 	// Create an ignore that looks old
-	s.IgnoreFinding("oldone", "old")
-	s.db.Exec("UPDATE ignores SET created_at = ?, last_hit = NULL WHERE hash = ?",
+	_ = s.IgnoreFinding("oldone", "old")
+	_, _ = s.db.Exec("UPDATE ignores SET created_at = ?, last_hit = NULL WHERE hash = ?",
 		time.Now().Add(-90*24*time.Hour), "oldone")
 
 	// Create a recent ignore
-	s.IgnoreFinding("newone", "new")
+	_ = s.IgnoreFinding("newone", "new")
 
 	pruned, err := s.PruneStaleIgnores(60 * 24 * time.Hour) // 60 days
 	if err != nil {
@@ -211,12 +211,12 @@ func TestPruneStaleIgnores(t *testing.T) {
 func TestResolveStaleFindings(t *testing.T) {
 	s := testStore(t)
 	f := testFinding()
-	s.RecordFinding(f)
+	_, _, _ = s.RecordFinding(f)
 
 	// Make it look old
-	s.db.Exec("UPDATE findings SET last_seen = ?", time.Now().Add(-48*time.Hour))
+	_, _ = s.db.Exec("UPDATE findings SET last_seen = ?", time.Now().Add(-48*time.Hour))
 
-	s.ResolveStaleFindings(24 * time.Hour)
+	_ = s.ResolveStaleFindings(24 * time.Hour)
 
 	findings, _ := s.ListFindings()
 	if len(findings) != 0 {
@@ -229,11 +229,11 @@ func TestIgnoreTracksHits(t *testing.T) {
 	f := testFinding()
 
 	hash, _, _ := s.RecordFinding(f)
-	s.IgnoreFinding(hash, "known")
+	_ = s.IgnoreFinding(hash, "known")
 
 	// Hit the ignore multiple times
-	s.RecordFinding(f)
-	s.RecordFinding(f)
+	_, _, _ = s.RecordFinding(f)
+	_, _, _ = s.RecordFinding(f)
 
 	ignores, _ := s.ListIgnores()
 	if len(ignores) != 1 {

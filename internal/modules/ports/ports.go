@@ -158,7 +158,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	if !m.baselineLoaded {
 		m.baseline = current
 		m.baselineLoaded = true
-		m.store.Save(m.Name(), m.baseline)
+		_ = m.store.Save(m.Name(), m.baseline)
 		return nil, nil
 	}
 
@@ -260,7 +260,7 @@ func parseProcNet(path, proto string) ([]PortEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var entries []PortEntry
 	scanner := bufio.NewScanner(f)

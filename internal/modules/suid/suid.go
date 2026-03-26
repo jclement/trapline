@@ -85,6 +85,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jclement/tripline/internal/baseline"
@@ -139,7 +140,7 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 	}
 	m.store = store
 	m.baseline = SuidBaseline{Entries: make(map[string]SuidEntry)}
-	m.store.Load(m.Name(), &m.baseline)
+	_, _ = m.store.Load(m.Name(), &m.baseline)
 	// Defensive nil check: JSON unmarshal of {"entries": null} leaves map nil
 	if m.baseline.Entries == nil {
 		m.baseline.Entries = make(map[string]SuidEntry)
@@ -194,7 +195,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 		// sane default since we cannot know whether existing SUID files are
 		// legitimate without external context.
 		m.baseline = SuidBaseline{Initialized: true, Entries: current}
-		m.store.Save(m.Name(), m.baseline)
+		_ = m.store.Save(m.Name(), m.baseline)
 		return nil, nil
 	}
 
@@ -208,7 +209,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 			// SUID binaries in world-writable temp directories are almost
 			// certainly malicious — no legitimate package installs SUID
 			// binaries in /tmp. Escalate to critical severity.
-			if filepath.HasPrefix(path, "/tmp") || filepath.HasPrefix(path, "/var/tmp") {
+			if strings.HasPrefix(path, "/tmp") || strings.HasPrefix(path, "/var/tmp") {
 				sev = finding.SeverityCritical
 			}
 			findings = append(findings, finding.Finding{
@@ -265,7 +266,7 @@ func (m *Module) findSuidBinaries(ctx context.Context) map[string]SuidEntry {
 	result := make(map[string]SuidEntry)
 
 	for _, root := range m.scanPaths {
-		filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 			// Check for context cancellation on every file to allow prompt
 			// abort when the scan timeout is reached.
 			select {
@@ -285,7 +286,7 @@ func (m *Module) findSuidBinaries(ctx context.Context) map[string]SuidEntry {
 			// avoid descending into potentially huge subtrees (e.g., Docker
 			// overlay storage can contain millions of files).
 			for _, excl := range m.excludePaths {
-				if filepath.HasPrefix(path, excl) {
+				if strings.HasPrefix(path, excl) {
 					if info.IsDir() {
 						return filepath.SkipDir
 					}

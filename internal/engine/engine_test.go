@@ -104,7 +104,9 @@ func TestEngineScanAll(t *testing.T) {
 		},
 	}
 	e.Register(m)
-	e.Init()
+	if err := e.Init(); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, err := e.ScanAll(context.Background())
 	if err != nil {
@@ -126,7 +128,9 @@ func TestEngineScanModule(t *testing.T) {
 		},
 	}
 	e.Register(m)
-	e.Init()
+	if err := e.Init(); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, err := e.ScanModule(context.Background(), "test-module")
 	if err != nil {
@@ -164,7 +168,9 @@ func TestEngineRunAndStop(t *testing.T) {
 		},
 	}
 	e.Register(m)
-	e.Init()
+	if err := e.Init(); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go e.Run(ctx)
@@ -196,7 +202,9 @@ func TestEngineDeduplication(t *testing.T) {
 		},
 	}
 	e.Register(m)
-	e.Init()
+	if err := e.Init(); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx := context.Background()
 	// Scan the same finding multiple times
@@ -216,7 +224,9 @@ func TestEngineDisabledModule(t *testing.T) {
 	e := New(cfg, nil, "0.1.0")
 	m := &mockModule{name: "disabled-mod"}
 	e.Register(m)
-	e.Init()
+	if err := e.Init(); err != nil {
+		t.Fatal(err)
+	}
 
 	enabled := e.EnabledModules()
 	for _, name := range enabled {
@@ -232,7 +242,9 @@ func TestEngineRebaseline(t *testing.T) {
 
 	m := &mockModule{name: "test-module"}
 	e.Register(m)
-	e.Init()
+	if err := e.Init(); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := e.RebaselineAll(context.Background()); err != nil {
 		t.Fatalf("RebaselineAll() error: %v", err)
@@ -264,7 +276,7 @@ func TestEngineHostname(t *testing.T) {
 		},
 	}
 	e.Register(m)
-	e.Init()
+	if err := e.Init(); err != nil { t.Fatal(err) }
 
 	e.scanAndEmit(context.Background(), m)
 

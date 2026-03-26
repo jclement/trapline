@@ -31,12 +31,18 @@ func TestDetectsWorldWritable(t *testing.T) {
 
 	// Create a world-writable file
 	badFile := filepath.Join(dir, "bad")
-	os.WriteFile(badFile, []byte("data"), 0644)
-	os.Chmod(badFile, 0666)
+	if err := os.WriteFile(badFile, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(badFile, 0666); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
 	m.scanPaths = []string{dir}
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, err := m.Scan(context.Background())
 	if err != nil {
@@ -59,11 +65,15 @@ func TestCleanDirectory(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create a normal file
-	os.WriteFile(filepath.Join(dir, "good"), []byte("data"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "good"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
 	m.scanPaths = []string{dir}
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 	// Filter to only perm-world-writable findings in our dir
@@ -82,18 +92,22 @@ func TestCancellation(t *testing.T) {
 	cfg := testModuleConfig(t)
 	m := New()
 	m.scanPaths = []string{t.TempDir()}
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	m.Scan(ctx)
+	_, _ = m.Scan(ctx)
 }
 
 func TestRebaselineNoOp(t *testing.T) {
 	cfg := testModuleConfig(t)
 	m := New()
 	m.scanPaths = nil
-	m.Init(cfg)
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := m.Rebaseline(context.Background()); err != nil {
 		t.Fatal(err)

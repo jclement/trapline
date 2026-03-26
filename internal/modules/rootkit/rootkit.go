@@ -262,7 +262,7 @@ func (m *Module) readKernelModules() (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	modules := make(map[string]bool)
 	scanner := bufio.NewScanner(f)

@@ -177,7 +177,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	if !m.baselineLoaded {
 		m.baseline = current
 		m.baselineLoaded = true
-		m.store.Save(m.Name(), m.baseline)
+		_ = m.store.Save(m.Name(), m.baseline)
 		return nil, nil
 	}
 
@@ -351,7 +351,7 @@ func parsePasswd(path string) ([]UserEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var users []UserEntry
 	scanner := bufio.NewScanner(f)
@@ -383,7 +383,7 @@ func parseGroup(path string) ([]GroupEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var groups []GroupEntry
 	scanner := bufio.NewScanner(f)
@@ -419,9 +419,9 @@ func hashFile(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
-	io.Copy(h, f)
+	_, _ = io.Copy(h, f)
 	return hex.EncodeToString(h.Sum(nil))
 }
 

@@ -182,7 +182,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 			m.baseline.KnownRemoteIPs[ip] = true
 		}
 		m.baselineLoaded = true
-		m.store.Save(m.Name(), m.baseline)
+		_ = m.store.Save(m.Name(), m.baseline)
 		return nil, nil
 	}
 
@@ -283,7 +283,7 @@ func parseEstablished(path string) ([]Connection, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var conns []Connection
 	scanner := bufio.NewScanner(f)

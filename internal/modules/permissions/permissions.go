@@ -135,7 +135,7 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 	}
 	m.store = store
 	m.cache.DirMtimes = make(map[string]time.Time)
-	m.store.Load(m.Name(), &m.cache)
+	_, _ = m.store.Load(m.Name(), &m.cache)
 	return nil
 }
 
@@ -157,7 +157,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	fullScan := time.Since(m.cache.LastFull) > 6*time.Hour || len(m.cache.DirMtimes) == 0
 
 	for _, root := range m.scanPaths {
-		filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 			// Check for context cancellation to allow prompt abort on scan timeout
 			select {
 			case <-ctx.Done():
@@ -271,7 +271,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 		m.cache.LastFull = time.Now()
 	}
 	// Persist the mtime cache so incremental scanning works across restarts
-	m.store.Save(m.Name(), m.cache)
+	_ = m.store.Save(m.Name(), m.cache)
 
 	return findings, nil
 }

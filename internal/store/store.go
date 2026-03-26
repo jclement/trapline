@@ -123,7 +123,7 @@ func Open(dir string) (*Store, error) {
 	}
 
 	if err := migrate(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrating database: %w", err)
 	}
 
@@ -258,7 +258,7 @@ func (s *Store) RecordFinding(f *finding.Finding) (hash string, ignored bool, er
 		// Update ignore hit tracking: bump last_hit to now and increment
 		// hit_count. These fields power PruneStaleIgnores (last_hit) and
 		// the "trapline ignores" display (hit_count).
-		s.db.Exec("UPDATE ignores SET last_hit = CURRENT_TIMESTAMP, hit_count = hit_count + 1 WHERE hash = ?", hash)
+		_, _ = s.db.Exec("UPDATE ignores SET last_hit = CURRENT_TIMESTAMP, hit_count = hit_count + 1 WHERE hash = ?", hash)
 		return hash, true, nil
 	}
 	// If err is sql.ErrNoRows, the finding is not ignored -- proceed to record it.
@@ -381,7 +381,7 @@ func (s *Store) ListIgnores() ([]IgnoreEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ignores []IgnoreEntry
 	for rows.Next() {
@@ -427,7 +427,7 @@ func (s *Store) ListFindings() ([]FindingEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var findings []FindingEntry
 	for rows.Next() {

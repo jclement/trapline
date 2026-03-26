@@ -227,7 +227,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	if !m.baselineLoaded {
 		m.baseline = current
 		m.baselineLoaded = true
-		m.store.Save(m.Name(), m.baseline)
+		_ = m.store.Save(m.Name(), m.baseline)
 		return findings, nil
 	}
 

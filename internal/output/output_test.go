@@ -79,13 +79,13 @@ func TestConsoleSinkLevelFilter(t *testing.T) {
 	}
 
 	// Info finding should be filtered
-	sink.Emit(testFinding(finding.SeverityInfo))
+	_ = sink.Emit(testFinding(finding.SeverityInfo))
 	if buf.Len() > 0 {
 		t.Error("info finding should have been filtered at high level")
 	}
 
 	// High finding should pass
-	sink.Emit(testFinding(finding.SeverityHigh))
+	_ = sink.Emit(testFinding(finding.SeverityHigh))
 	if buf.Len() == 0 {
 		t.Error("high finding should not have been filtered")
 	}
@@ -108,7 +108,7 @@ func TestFileSink(t *testing.T) {
 	if err := sink.Emit(testFinding(finding.SeverityHigh)); err != nil {
 		t.Fatalf("Emit() error: %v", err)
 	}
-	sink.Close()
+	_ = sink.Close()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -128,7 +128,7 @@ func TestTCPSink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	received := make(chan string, 1)
 	go func() {
@@ -136,7 +136,7 @@ func TestTCPSink(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		buf := make([]byte, 4096)
 		n, _ := conn.Read(buf)
 		received <- string(buf[:n])
@@ -147,7 +147,7 @@ func TestTCPSink(t *testing.T) {
 		Address: ln.Addr().String(),
 		Level:   "info",
 	})
-	defer sink.Close()
+	defer func() { _ = sink.Close() }()
 
 	if err := sink.Emit(testFinding(finding.SeverityHigh)); err != nil {
 		t.Fatalf("Emit() error: %v", err)
@@ -169,7 +169,7 @@ func TestTCPSinkReconnect(t *testing.T) {
 		Address: "127.0.0.1:1", // nothing listening
 		Level:   "info",
 	})
-	defer sink.Close()
+	defer func() { _ = sink.Close() }()
 
 	err := sink.Emit(testFinding(finding.SeverityHigh))
 	if err == nil {
@@ -186,7 +186,7 @@ func TestWebhookSinkCooldown(t *testing.T) {
 	})
 
 	f := testFinding(finding.SeverityHigh)
-	sink.Emit(f)
+	_ = sink.Emit(f)
 
 	// Verify cooldown tracking
 	sink.mu.Lock()

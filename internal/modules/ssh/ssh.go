@@ -150,7 +150,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 		// First run: establish the baseline so future scans can detect drift.
 		m.baseline = current
 		m.baselineLoaded = true
-		m.store.Save(m.Name(), m.baseline)
+		_ = m.store.Save(m.Name(), m.baseline)
 		return findings, nil
 	}
 

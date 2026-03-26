@@ -1,6 +1,7 @@
 package containers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -47,10 +48,10 @@ func TestScanNoDocker(t *testing.T) {
 	cfg := testModuleConfig(t)
 	m := New()
 	m.socketPath = "/nonexistent/docker.sock"
-	m.Init(cfg)
+	_ = m.Init(cfg)
 
 	// Should not error when Docker is unavailable
-	_, err := m.Scan(nil)
+	_, err := m.Scan(context.TODO())
 	_ = err // may or may not error depending on context
 }
 
@@ -75,7 +76,7 @@ func TestContainerNameParsing(t *testing.T) {
 func mockDockerAPI(containers []Container) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/containers/json" {
-			json.NewEncoder(w).Encode(containers)
+			_ = json.NewEncoder(w).Encode(containers)
 			return
 		}
 		http.NotFound(w, r)
@@ -96,10 +97,10 @@ func TestMockDockerAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result []Container
-	json.NewDecoder(resp.Body).Decode(&result)
+	_ = json.NewDecoder(resp.Body).Decode(&result)
 	if len(result) != 2 {
 		t.Errorf("expected 2 containers, got %d", len(result))
 	}

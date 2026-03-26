@@ -22,7 +22,7 @@ func testServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 
@@ -69,7 +69,7 @@ func TestIngestFindings(t *testing.T) {
 	}
 
 	var result map[string]int
-	json.Unmarshal(w.Body.Bytes(), &result)
+	_ = json.Unmarshal(w.Body.Bytes(), &result)
 	if result["ingested"] != 1 {
 		t.Errorf("ingested = %d, want 1", result["ingested"])
 	}
@@ -144,7 +144,7 @@ func TestGetStats(t *testing.T) {
 	}
 
 	var stats map[string]int
-	json.Unmarshal(w.Body.Bytes(), &stats)
+	_ = json.Unmarshal(w.Body.Bytes(), &stats)
 	if stats["hosts"] != 2 {
 		t.Errorf("hosts = %d, want 2", stats["hosts"])
 	}
@@ -206,7 +206,7 @@ func TestUpsertIncrementsHitCount(t *testing.T) {
 		HitCount int `json:"hit_count"`
 	}
 	var results []Row
-	json.Unmarshal(w.Body.Bytes(), &results)
+	_ = json.Unmarshal(w.Body.Bytes(), &results)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(results))
 	}
@@ -226,7 +226,7 @@ func TestWebRootPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	req := httptest.NewRequest("GET", "/trapline/", nil)
 	req.AddCookie(&http.Cookie{Name: "trapline_session", Value: "testpass"})
