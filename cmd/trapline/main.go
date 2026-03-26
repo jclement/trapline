@@ -1069,23 +1069,28 @@ func cmdBench(configPath string) error {
 		fmt.Println()
 	}
 
-	// Run 3 scan cycles
+	mc := eng.Metrics()
 	ctx := context.Background()
-	for i := 1; i <= 3; i++ {
+	passes := 3
+
+	for i := 1; i <= passes; i++ {
 		if tui.IsTTY() {
-			fmt.Printf("  Pass %d/3...\n", i)
+			fmt.Printf("  Pass %d/%d...\n", i, passes)
 		}
-		eng.ScanAll(ctx)
+		// Time each module individually
+		for _, name := range eng.EnabledModules() {
+			start := time.Now()
+			findings, _ := eng.ScanModule(ctx, name)
+			mc.Record(name, time.Since(start), len(findings))
+		}
 	}
 
 	if tui.IsTTY() {
 		fmt.Println()
 		fmt.Println(tui.FormatSection("Results"))
 		fmt.Println()
-		fmt.Print(eng.Metrics().FormatSummary())
-	} else {
-		fmt.Print(eng.Metrics().FormatSummary())
 	}
+	fmt.Print(mc.FormatSummary())
 	return nil
 }
 
