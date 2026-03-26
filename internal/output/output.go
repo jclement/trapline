@@ -63,6 +63,7 @@ import (
 	"time"
 
 	"github.com/jclement/tripline/internal/config"
+	"github.com/jclement/tripline/internal/tui"
 	"github.com/jclement/tripline/pkg/finding"
 )
 
@@ -231,8 +232,20 @@ func (s *ConsoleSink) Emit(f *finding.Finding) error {
 		return nil
 	}
 	if s.format == "text" {
-		// Human-readable single-line format:
-		// [SEVERITY] 2024-01-15T09:30:00Z new-user-login: User logged in from new IP
+		// Use colored log-style output when writing to a TTY.
+		if tui.IsTTY() {
+			badge := tui.SeverityBadge(f.Severity)
+			ts := tui.Dimmed.Render(f.Timestamp.Format("15:04:05"))
+			hash := ""
+			if f.ScanID != "" {
+				hash = tui.Dimmed.Render(f.ScanID) + " "
+			}
+			id := tui.Dimmed.Render(f.FindingID)
+			_, err := fmt.Fprintf(s.w, "%s %s %s%s  %s\n",
+				ts, badge, hash, f.Summary, id)
+			return err
+		}
+		// Plain text fallback for pipes/non-TTY.
 		_, err := fmt.Fprintf(s.w, "[%s] %s %s: %s\n",
 			strings.ToUpper(string(f.Severity)),
 			f.Timestamp.Format(time.RFC3339),

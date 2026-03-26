@@ -146,6 +146,7 @@ func printUsage() {
 		fmt.Println("  server               Start dashboard server (accepts remote findings)")
 		fmt.Println("  status               Show module status and active findings")
 		fmt.Println("  scan                 Run all modules once, print results, exit")
+		fmt.Println("  scan -f              Follow mode: continuous colored live log")
 		fmt.Println("  bench                Run benchmark passes and show per-module timing")
 		fmt.Println("  rebaseline           Capture current state as known-good")
 		fmt.Println("  findings             List active findings")
@@ -180,6 +181,7 @@ Operations:
   server               Start dashboard server (accepts remote findings)
   status               Show module status and active findings
   scan                 Run all modules once, print results, exit
+  scan -f              Follow mode: continuous colored live log
   bench                Run benchmark passes and show per-module timing
   rebaseline           Capture current state as known-good
   findings             List active findings
@@ -315,10 +317,20 @@ func cmdScan(configPath string, args []string) error {
 	defer db.Close()
 
 	var moduleName string
+	follow := false
 	for i, arg := range args {
 		if arg == "--module" && i+1 < len(args) {
 			moduleName = args[i+1]
 		}
+		if arg == "-f" || arg == "--follow" {
+			follow = true
+		}
+	}
+
+	// Follow mode: run as a lightweight daemon with console-only output.
+	// Each new finding appears as a colored log line. Ctrl-C to stop.
+	if follow {
+		return cmdScanFollow(cfg, db)
 	}
 
 	eng := buildEngine(cfg, nil)
@@ -380,6 +392,62 @@ func cmdScan(configPath string, args []string) error {
 	}
 
 	return errFindingsPresent
+}
+
+// cmdScanFollow runs continuous scanning with live colored output.
+// Like `tail -f` for security findings. Each new finding appears once
+// as a colored log line. Ctrl-C to stop.
+func cmdScanFollow(cfg *config.Config, db *store.Store) error {
+	// Force console output to text mode at info level
+	cfg.Output.Console.Enabled = true
+	cfg.Output.Console.Format = "text"
+	cfg.Output.Console.Level = "info"
+	// Disable other sinks — this is interactive
+	cfg.Output.File.Enabled = false
+	cfg.Output.TCP.Enabled = false
+	cfg.Output.Webhook.Enabled = false
+
+	mgr, err := output.NewManager(cfg.Output)
+	if err != nil {
+		return err
+	}
+	defer mgr.Close()
+
+	handler := func(f *finding.Finding) {
+		hash, ignored, _ := db.RecordFinding(f)
+		if ignored {
+			return
+		}
+		f.ScanID = hash
+		mgr.Emit(f)
+	}
+
+	eng := buildEngine(cfg, handler)
+	if err := eng.Init(); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
+	if tui.IsTTY() {
+		fmt.Println(tui.FormatBanner(version, taglines.Random()))
+		fmt.Printf("Watching %d modules... %s\n\n",
+			len(eng.EnabledModules()),
+			tui.Dimmed.Render("(Ctrl-C to stop)"))
+	} else {
+		fmt.Printf("Trapline %s — continuous scan (%d modules)\n", version, len(eng.EnabledModules()))
+	}
+
+	eng.Run(ctx)
+	return nil
 }
 
 func cmdStatus(configPath string) error {
