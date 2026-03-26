@@ -1,3 +1,5 @@
+# Playground config — tuned for Docker containers.
+# Modules that produce false positives in Docker are disabled.
 state_dir: /var/lib/trapline
 
 output:
@@ -22,8 +24,7 @@ modules:
     enabled: true
     interval: 5s
   processes:
-    enabled: true
-    interval: 5s
+    enabled: false   # transient processes (sleep, entrypoint) cause constant churn
   users:
     enabled: true
     interval: 10s
@@ -37,15 +38,13 @@ modules:
     enabled: true
     interval: 10s
   permissions:
+    enabled: false   # /etc/shadow perms are Docker defaults, not fixable in container
+  rootkit:
+    enabled: false   # /dev/console is a regular file in Docker (false positive)
+  malware:
     enabled: true
     interval: 30s
   containers:
     enabled: false
-  rootkit:
-    enabled: true
-    interval: 10s
-  malware:
-    enabled: true
-    interval: 30s
   network:
     enabled: false   # not useful in a throwaway container
