@@ -12,7 +12,7 @@ output:
 
 defaults:
   interval: 10s
-  cooldown: 30s
+  cooldown: 1h     # suppress duplicate findings for 1 hour (show each finding once)
 
 modules:
   file-integrity:
