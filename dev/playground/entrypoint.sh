@@ -1,7 +1,7 @@
 #!/bin/bash
 # Trapline Playground — tmux split-screen environment
 #
-# Top pane:    `trapline scan -f` (follow mode) — colored live findings log
+# Top pane:    `trapline run` — daemon with colored console output
 # Bottom pane: interactive shell for breaking things
 #
 # Quit: Ctrl-C top pane, Ctrl-D bottom pane. Container is --rm, gone.
@@ -15,8 +15,8 @@ echo "Baseline captured. Starting playground..."
 # Create tmux session
 tmux new-session -d -s playground
 
-# Top pane: trapline scan -f (continuous colored output, one line per new finding)
-tmux send-keys -t playground "trapline scan -f --config $CFG" Enter
+# Top pane: trapline daemon with console output
+tmux send-keys -t playground "trapline run --config $CFG" Enter
 
 # Split: bottom pane gets 60%
 tmux split-window -t playground -v -l 60%
