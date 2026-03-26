@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -274,6 +275,21 @@ func Doctor() *DoctorResult {
 			return CheckWarning, "Apt hook not installed", "Run: trapline install"
 		}
 		return CheckPassed, "Apt hook at " + AptHookPath, ""
+	})
+
+	// ---- Disk ----
+	// Verify there is enough free disk space on the state directory partition
+	// to avoid silent data loss from a full filesystem.
+	r.check("Disk", "Disk space available", func() (CheckStatus, string, string) {
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(StateDir, &stat); err != nil {
+			return CheckWarning, "Cannot check disk space: " + err.Error(), ""
+		}
+		freeMB := (stat.Bavail * uint64(stat.Bsize)) / (1024 * 1024)
+		if freeMB < 100 {
+			return CheckError, fmt.Sprintf("Only %d MB free on %s", freeMB, StateDir), "Free up disk space on " + StateDir
+		}
+		return CheckPassed, fmt.Sprintf("%d MB free on %s", freeMB, StateDir), ""
 	})
 
 	// Tally the final pass/warning/error counts from all collected checks.

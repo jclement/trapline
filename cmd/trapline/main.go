@@ -333,7 +333,7 @@ func cmdScan(configPath string, args []string) error {
 		if moduleName != "" {
 			fmt.Printf("Scanning module: %s\n\n", tui.Subtitle.Render(moduleName))
 		} else {
-			fmt.Printf("Scanning %d modules...\n\n", len(eng.EnabledModules()))
+			fmt.Printf("Scanning %d modules (packages module may take 30s)...\n\n", len(eng.EnabledModules()))
 		}
 	}
 
@@ -728,14 +728,39 @@ func cmdRebaseline(configPath string, args []string) error {
 	ctx := context.Background()
 
 	var modules []string
+	dryRun := false
 	for i, arg := range args {
 		if arg == "--module" && i+1 < len(args) {
 			modules = append(modules, args[i+1])
+		}
+		if arg == "--dry-run" {
+			dryRun = true
 		}
 	}
 
 	if tui.IsTTY() {
 		fmt.Println(tui.FormatBanner(version, taglines.Random()))
+	}
+
+	if dryRun {
+		findings, err := eng.ScanAll(ctx)
+		if err != nil {
+			return err
+		}
+		if len(findings) == 0 {
+			fmt.Println("No differences from current baseline.")
+		} else {
+			fmt.Println("These findings would be accepted as known-good:")
+			for _, f := range findings {
+				if tui.IsTTY() {
+					fmt.Println(tui.FormatFinding(&f))
+				} else {
+					fmt.Printf("[%s] %s: %s\n", strings.ToUpper(string(f.Severity)), f.FindingID, f.Summary)
+				}
+			}
+			fmt.Printf("\n%d finding(s) would be accepted.\n", len(findings))
+		}
+		return nil
 	}
 
 	if len(modules) > 0 {
