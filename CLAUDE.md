@@ -9,7 +9,7 @@ Host integrity monitoring daemon for Linux. Go project at `github.com/jclement/t
 export PATH=/usr/local/go/bin:$PATH GOROOT=/usr/local/go
 
 CGO_ENABLED=0 go build -o trapline ./cmd/trapline    # build
-CGO_ENABLED=0 go test ./...                           # unit tests (166 tests, 21 packages)
+CGO_ENABLED=0 go test ./...                           # unit tests (~180 tests, 23 packages)
 CGO_ENABLED=0 go vet ./...                            # vet
 CGO_ENABLED=0 go test -tags e2e -v ./e2e/ -timeout 5m # e2e tests (requires Docker)
 ```
@@ -27,8 +27,16 @@ CGO_ENABLED=0 go test -tags e2e -v ./e2e/ -timeout 5m # e2e tests (requires Dock
 - `internal/taglines/` - 200 taglines (shown in CLI banners)
 - `internal/updater/` - self-update from GitHub releases
 - `internal/install/` - install, uninstall, doctor
+- `internal/server/` - built-in dashboard HTTP server
+- `internal/metrics/` - per-module scan timing/benchmarks
 - `pkg/finding/` - shared Finding type
 - `e2e/` - Docker-based end-to-end tests
+- `deploy/` - Dockerfile.server, docker-compose.yml for dashboard
+
+## Important rules
+
+- **Keep README.md current.** Any time you add, remove, or change a feature, command, module, config option, or CLI flag, update README.md to match. The README is the single source of truth for users. If the code and README disagree, the README is wrong and must be fixed.
+- **Keep CLAUDE.md current.** Update the architecture list below when adding new packages.
 
 ## Key patterns
 
