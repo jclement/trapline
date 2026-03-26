@@ -88,10 +88,11 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 
 	var findings []finding.Finding
 
-	// Check deny list
+	// Check deny list using exact name matching (case-insensitive).
+	// This prevents partial matches like "ssh" matching "openssh-keyscan".
 	for _, proc := range current {
 		for _, deny := range m.deny {
-			if strings.Contains(strings.ToLower(proc.Name), strings.ToLower(deny.Name)) {
+			if strings.EqualFold(proc.Name, deny.Name) {
 				findings = append(findings, finding.Finding{
 					Timestamp: time.Now().UTC(),
 					FindingID: fmt.Sprintf("process-denied:%s:%d", proc.Name, proc.PID),

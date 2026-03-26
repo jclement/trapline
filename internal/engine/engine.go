@@ -185,8 +185,17 @@ func (e *Engine) EnabledModules() []string {
 func (e *Engine) runModule(ctx context.Context, m Module, interval time.Duration) {
 	defer e.wg.Done()
 
+	runScan := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "module %s panic: %v\n", m.Name(), r)
+			}
+		}()
+		e.scanAndEmit(ctx, m)
+	}
+
 	// Run immediately on start
-	e.scanAndEmit(ctx, m)
+	runScan()
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -196,7 +205,7 @@ func (e *Engine) runModule(ctx context.Context, m Module, interval time.Duration
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			e.scanAndEmit(ctx, m)
+			runScan()
 		}
 	}
 }
@@ -242,6 +251,17 @@ func (e *Engine) isDuplicate(f *finding.Finding) bool {
 		}
 	}
 	e.cooldowns[key] = time.Now()
+
+	// Prevent unbounded growth: prune entries older than 24 hours
+	if len(e.cooldowns) > 10000 {
+		cutoff := time.Now().Add(-24 * time.Hour)
+		for k, t := range e.cooldowns {
+			if t.Before(cutoff) {
+				delete(e.cooldowns, k)
+			}
+		}
+	}
+
 	return false
 }
 

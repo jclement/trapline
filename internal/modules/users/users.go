@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -41,16 +43,18 @@ type Module struct {
 	baseline       UsersBaseline
 	baselineLoaded bool
 	// For testing
-	PasswdPath  string
-	GroupPath   string
-	SudoersPath string
+	PasswdPath     string
+	GroupPath      string
+	SudoersPath    string
+	SudoersDirPath string
 }
 
 func New() *Module {
 	return &Module{
-		PasswdPath:  "/etc/passwd",
-		GroupPath:   "/etc/group",
-		SudoersPath: "/etc/sudoers",
+		PasswdPath:     "/etc/passwd",
+		GroupPath:      "/etc/group",
+		SudoersPath:    "/etc/sudoers",
+		SudoersDirPath: "/etc/sudoers.d",
 	}
 }
 
@@ -193,6 +197,24 @@ func (m *Module) snapshot() (UsersBaseline, error) {
 	}
 
 	sudoersHash := hashFile(m.SudoersPath)
+
+	// Also hash all files in sudoers.d and concatenate into the hash
+	if entries, err := os.ReadDir(m.SudoersDirPath); err == nil {
+		// Sort for deterministic ordering
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			if !e.IsDir() {
+				names = append(names, e.Name())
+			}
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			h := hashFile(filepath.Join(m.SudoersDirPath, name))
+			if h != "" {
+				sudoersHash += h
+			}
+		}
+	}
 
 	return UsersBaseline{
 		Users:       users,

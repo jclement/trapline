@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -133,10 +134,13 @@ func (s *ConsoleSink) Close() error { return nil }
 // --- File Sink ---
 
 type FileSink struct {
-	format string
-	level  finding.Severity
-	f      *os.File
-	mu     sync.Mutex
+	format     string
+	level      finding.Severity
+	f          *os.File
+	path       string
+	maxSizeMB  int
+	maxBackups int
+	mu         sync.Mutex
 }
 
 func NewFileSink(cfg config.FileOutputConfig) (*FileSink, error) {
@@ -148,10 +152,17 @@ func NewFileSink(cfg config.FileOutputConfig) (*FileSink, error) {
 	if err != nil {
 		return nil, err
 	}
+	maxBackups := cfg.MaxBackups
+	if maxBackups == 0 {
+		maxBackups = 5
+	}
 	return &FileSink{
-		format: cfg.Format,
-		level:  finding.ParseSeverity(cfg.Level),
-		f:      f,
+		format:     cfg.Format,
+		level:      finding.ParseSeverity(cfg.Level),
+		f:          f,
+		path:       cfg.Path,
+		maxSizeMB:  cfg.MaxSizeMB,
+		maxBackups: maxBackups,
 	}, nil
 }
 
@@ -164,6 +175,15 @@ func (s *FileSink) Emit(f *finding.Finding) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Check if rotation is needed
+	if s.maxSizeMB > 0 {
+		if info, err := s.f.Stat(); err == nil {
+			if info.Size() >= int64(s.maxSizeMB)*1024*1024 {
+				s.rotate()
+			}
+		}
+	}
+
 	data, err := f.JSON()
 	if err != nil {
 		return err
@@ -171,6 +191,34 @@ func (s *FileSink) Emit(f *finding.Finding) error {
 	data = append(data, '\n')
 	_, err = s.f.Write(data)
 	return err
+}
+
+// rotate closes the current file, shifts existing backups, and opens a new file.
+// Must be called with s.mu held.
+func (s *FileSink) rotate() {
+	s.f.Close()
+
+	// Shift existing backups: .2 -> .3, .1 -> .2, etc.
+	for i := s.maxBackups; i >= 1; i-- {
+		src := fmt.Sprintf("%s.%d", s.path, i)
+		dst := fmt.Sprintf("%s.%d", s.path, i+1)
+		if i == s.maxBackups {
+			os.Remove(src) // remove oldest
+		} else {
+			os.Rename(src, dst)
+		}
+	}
+
+	// Rename current to .1
+	os.Rename(s.path, s.path+".1")
+
+	// Open new file
+	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+	if err != nil {
+		// Best effort: reopen the renamed file
+		f, _ = os.OpenFile(s.path+".1", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+	}
+	s.f = f
 }
 
 func (s *FileSink) Close() error {
@@ -181,12 +229,15 @@ func (s *FileSink) Close() error {
 
 // --- TCP Sink ---
 
+const tcpBufferMax = 1000
+
 type TCPSink struct {
 	address          string
 	level            finding.Severity
 	retryInterval    time.Duration
 	maxRetryInterval time.Duration
 	conn             net.Conn
+	buffer           [][]byte // ring buffer for failed writes
 	mu               sync.Mutex
 }
 
@@ -235,17 +286,43 @@ func (s *TCPSink) Emit(f *finding.Finding) error {
 	data = append(data, '\n')
 
 	if err := s.connect(); err != nil {
+		s.bufferData(data)
 		return fmt.Errorf("tcp connect: %w", err)
 	}
+
+	// Flush buffered data first
+	s.flushBuffer()
 
 	_, err = s.conn.Write(data)
 	if err != nil {
 		// Connection lost, reset for next attempt
 		s.conn.Close()
 		s.conn = nil
+		s.bufferData(data)
 		return fmt.Errorf("tcp write: %w", err)
 	}
 	return nil
+}
+
+// bufferData adds data to the ring buffer, dropping oldest if full.
+func (s *TCPSink) bufferData(data []byte) {
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	if len(s.buffer) >= tcpBufferMax {
+		s.buffer = s.buffer[1:]
+	}
+	s.buffer = append(s.buffer, cp)
+}
+
+// flushBuffer sends all buffered data. Must be called with s.mu held and s.conn != nil.
+func (s *TCPSink) flushBuffer() {
+	remaining := s.buffer[:0]
+	for _, data := range s.buffer {
+		if _, err := s.conn.Write(data); err != nil {
+			remaining = append(remaining, data)
+		}
+	}
+	s.buffer = remaining
 }
 
 func (s *TCPSink) Close() error {
@@ -298,15 +375,21 @@ func (s *WebhookSink) Emit(f *finding.Finding) error {
 		}
 	}
 
-	payload, _ := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]interface{}{
 		"text": fmt.Sprintf("**Trapline Alert on %s**\nModule: %s | Severity: %s\n%s",
 			f.Hostname, f.Module, f.Severity, f.Summary),
 	})
+	if err != nil {
+		return fmt.Errorf("webhook marshal: %w", err)
+	}
 
-	// We use a simple approach - in production this would use net/http
-	// but we avoid importing it here to keep the sink interface clean.
-	// The actual HTTP call is deferred to a helper.
-	_ = payload
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(s.url, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("webhook post: %w", err)
+	}
+	resp.Body.Close()
+
 	s.lastSent[f.FindingID] = time.Now()
 	return nil
 }

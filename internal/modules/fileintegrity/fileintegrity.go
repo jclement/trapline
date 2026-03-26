@@ -200,16 +200,38 @@ func (m *Module) Rebaseline(ctx context.Context) error {
 	return m.store.Save(m.Name(), m.baseline)
 }
 
+// maxHashSize is the maximum file size (100MB) we will hash; larger files
+// get metadata-only tracking to avoid expensive I/O.
+const maxHashSize = 100 * 1024 * 1024
+
 func scanFile(path string) (FileEntry, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return FileEntry{}, err
 	}
 
+	var owner, group uint32
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		owner = stat.Uid
+		group = stat.Gid
+	}
+
 	// Don't follow symlinks for hash, just track them
 	if info.Mode()&os.ModeSymlink != 0 {
 		return FileEntry{
 			Mode:  info.Mode(),
+			MTime: info.ModTime(),
+			Owner: owner,
+			Group: group,
+		}, nil
+	}
+
+	// Skip hashing for files larger than 100MB; record metadata only
+	if info.Size() > maxHashSize {
+		return FileEntry{
+			Mode:  info.Mode(),
+			Owner: owner,
+			Group: group,
 			MTime: info.ModTime(),
 		}, nil
 	}
@@ -219,6 +241,8 @@ func scanFile(path string) (FileEntry, error) {
 		return FileEntry{
 			Mode:  info.Mode(),
 			MTime: info.ModTime(),
+			Owner: owner,
+			Group: group,
 		}, nil
 	}
 	defer f.Close()
@@ -226,12 +250,6 @@ func scanFile(path string) (FileEntry, error) {
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return FileEntry{}, err
-	}
-
-	var owner, group uint32
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		owner = stat.Uid
-		group = stat.Gid
 	}
 
 	return FileEntry{

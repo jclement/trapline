@@ -5,3 +5,4 @@ dist/
 /dev/playground/
 !dev/playground/trapline.yml
 .claude/
+e2e/trapline
