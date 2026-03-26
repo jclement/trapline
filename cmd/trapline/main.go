@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"github.com/jclement/tripline/internal/config"
 	"github.com/jclement/tripline/internal/engine"
 	"github.com/jclement/tripline/internal/install"
+	"github.com/jclement/tripline/internal/server"
 	"github.com/jclement/tripline/internal/modules/containers"
 	"github.com/jclement/tripline/internal/modules/cron"
 	"github.com/jclement/tripline/internal/modules/fileintegrity"
@@ -39,6 +41,10 @@ var (
 	version = "dev"
 	commit  = "unknown"
 	date    = "unknown"
+
+	// errFindingsPresent is returned when a scan completes with findings.
+	// main() treats this as exit code 1 without printing an error message.
+	errFindingsPresent = errors.New("findings present")
 )
 
 func main() {
@@ -99,6 +105,10 @@ func main() {
 		err = cmdUpdate(configPath, extraArgs)
 	case "config":
 		err = cmdConfig(configPath, extraArgs)
+	case "bench":
+		err = cmdBench(configPath)
+	case "server":
+		err = cmdServer(extraArgs)
 	case "version":
 		err = cmdVersion(extraArgs)
 	case "help", "--help", "-h":
@@ -110,6 +120,9 @@ func main() {
 	}
 
 	if err != nil {
+		if errors.Is(err, errFindingsPresent) {
+			os.Exit(1)
+		}
 		if tui.IsTTY() {
 			fmt.Fprintln(os.Stderr, tui.Error.Render("Error: "+err.Error()))
 		} else {
@@ -130,8 +143,10 @@ func printUsage() {
 		fmt.Println()
 		fmt.Println(tui.FormatSection("Operations"))
 		fmt.Println("  run                  Start daemon (foreground, for systemd)")
+		fmt.Println("  server               Start dashboard server (accepts remote findings)")
 		fmt.Println("  status               Show module status and active findings")
 		fmt.Println("  scan                 Run all modules once, print results, exit")
+		fmt.Println("  bench                Run benchmark passes and show per-module timing")
 		fmt.Println("  rebaseline           Capture current state as known-good")
 		fmt.Println("  findings             List active findings")
 		fmt.Println()
@@ -162,8 +177,10 @@ Lifecycle:
 
 Operations:
   run                  Start daemon (foreground, for systemd)
+  server               Start dashboard server (accepts remote findings)
   status               Show module status and active findings
   scan                 Run all modules once, print results, exit
+  bench                Run benchmark passes and show per-module timing
   rebaseline           Capture current state as known-good
   findings             List active findings
 
@@ -237,6 +254,9 @@ func cmdRun(configPath string) error {
 		return fmt.Errorf("setting up outputs: %w", err)
 	}
 	defer mgr.Close()
+
+	// Add dashboard sink if configured
+	mgr.AddDashboardSink(cfg.Dashboard.URL, cfg.Dashboard.Secret)
 
 	handler := func(f *finding.Finding) {
 		hash, ignored, _ := db.RecordFinding(f)
@@ -359,8 +379,7 @@ func cmdScan(configPath string, args []string) error {
 		fmt.Printf("\n%d finding(s)\n", len(active))
 	}
 
-	os.Exit(1)
-	return nil
+	return errFindingsPresent
 }
 
 func cmdStatus(configPath string) error {
@@ -938,6 +957,107 @@ func cmdConfig(configPath string, args []string) error {
 		fmt.Println("Usage: trapline config <check|show|init>")
 		return nil
 	}
+}
+
+func cmdBench(configPath string) error {
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
+
+	eng := buildEngine(cfg, nil)
+	if err := eng.Init(); err != nil {
+		return err
+	}
+
+	if tui.IsTTY() {
+		fmt.Println(tui.FormatBanner(version, taglines.Random()))
+		fmt.Println(tui.FormatSection("Benchmark"))
+		fmt.Println()
+	}
+
+	// Run 3 scan cycles
+	ctx := context.Background()
+	for i := 1; i <= 3; i++ {
+		if tui.IsTTY() {
+			fmt.Printf("  Pass %d/3...\n", i)
+		}
+		eng.ScanAll(ctx)
+	}
+
+	if tui.IsTTY() {
+		fmt.Println()
+		fmt.Println(tui.FormatSection("Results"))
+		fmt.Println()
+		fmt.Print(eng.Metrics().FormatSummary())
+	} else {
+		fmt.Print(eng.Metrics().FormatSummary())
+	}
+	return nil
+}
+
+func cmdServer(args []string) error {
+	addr := envOrDefault("ADDR", ":8080")
+	dataDir := envOrDefault("DATA_DIR", "/var/lib/trapline/server")
+	password := os.Getenv("PASSWORD")
+	publishSecrets := os.Getenv("PUBLISH_SECRETS")
+	webRoot := os.Getenv("WEB_ROOT")
+
+	for i, arg := range args {
+		if (arg == "--addr" || arg == "--listen") && i+1 < len(args) {
+			addr = args[i+1]
+		}
+		if arg == "--data" && i+1 < len(args) {
+			dataDir = args[i+1]
+		}
+		if arg == "--password" && i+1 < len(args) {
+			password = args[i+1]
+		}
+		if arg == "--publish-secrets" && i+1 < len(args) {
+			publishSecrets = args[i+1]
+		}
+		if arg == "--web-root" && i+1 < len(args) {
+			webRoot = args[i+1]
+		}
+	}
+
+	var secrets []string
+	if publishSecrets != "" {
+		secrets = strings.Split(publishSecrets, ",")
+	}
+
+	srv, err := server.New(server.Config{
+		Addr:           addr,
+		DataDir:        dataDir,
+		Password:       password,
+		PublishSecrets: secrets,
+		WebRoot:        webRoot,
+	})
+	if err != nil {
+		return err
+	}
+	defer srv.Close()
+
+	if tui.IsTTY() {
+		fmt.Println(tui.FormatBanner(version, taglines.Random()))
+		fmt.Println(tui.FormatSection("Dashboard Server"))
+		fmt.Println()
+		fmt.Printf("  %s Listening on %s\n", tui.CheckMark(true), tui.Subtitle.Render(addr))
+		fmt.Println()
+		fmt.Println(tui.Dimmed.Render("  Configure agents to POST findings to http://<this-host>" + addr + "/api/findings"))
+		fmt.Println(tui.Dimmed.Render("  with header: Authorization: Bearer <publish-secret>"))
+	} else {
+		fmt.Printf("Trapline dashboard server starting on %s\n", addr)
+	}
+
+	return srv.ListenAndServe()
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func cmdVersion(args []string) error {

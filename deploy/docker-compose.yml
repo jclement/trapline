@@ -1,0 +1,40 @@
+# Trapline Dashboard Server
+#
+# Deploy behind Traefik (or any reverse proxy) for TLS.
+#
+# Usage:
+#   1. Set PASSWORD and PUBLISH_SECRETS in .env or below
+#   2. docker compose up -d
+#   3. Access at https://your-domain/trapline/
+#
+# Agent config (trapline.yml on each host):
+#   dashboard:
+#     url: "https://your-domain/trapline"
+#     secret: "agent-secret-for-this-host"
+
+services:
+  dashboard:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    container_name: trapline-dashboard
+    restart: unless-stopped
+    environment:
+      - PASSWORD=${PASSWORD:?Set PASSWORD in .env}
+      - PUBLISH_SECRETS=${PUBLISH_SECRETS:?Set PUBLISH_SECRETS in .env}
+      - WEB_ROOT=/trapline
+      - ADDR=:8080
+    volumes:
+      - trapline-data:/data
+    labels:
+      # Traefik auto-discovery (adjust to your setup)
+      - "traefik.enable=true"
+      - "traefik.http.routers.trapline.rule=PathPrefix(`/trapline`)"
+      - "traefik.http.routers.trapline.tls=true"
+      - "traefik.http.routers.trapline.tls.certresolver=letsencrypt"
+      - "traefik.http.services.trapline.loadbalancer.server.port=8080"
+    expose:
+      - "8080"
+
+volumes:
+  trapline-data:

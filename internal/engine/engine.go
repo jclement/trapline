@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jclement/tripline/internal/config"
+	"github.com/jclement/tripline/internal/metrics"
 	"github.com/jclement/tripline/pkg/finding"
 )
 
@@ -22,6 +23,9 @@ type Engine struct {
 	handler  FindingHandler
 	hostname string
 	version  string
+
+	// Metrics
+	metrics *metrics.Collector
 
 	// Deduplication state
 	cooldowns map[string]time.Time
@@ -43,6 +47,7 @@ func New(cfg *config.Config, handler FindingHandler, version string) *Engine {
 		handler:   handler,
 		hostname:  hostname,
 		version:   version,
+		metrics:   metrics.New(100),
 		cooldowns: make(map[string]time.Time),
 	}
 }
@@ -210,9 +215,17 @@ func (e *Engine) runModule(ctx context.Context, m Module, interval time.Duration
 	}
 }
 
+// Metrics returns the engine's metrics collector.
+func (e *Engine) Metrics() *metrics.Collector {
+	return e.metrics
+}
+
 func (e *Engine) scanAndEmit(ctx context.Context, m Module) {
 	scanID := randomID()
+	start := time.Now()
 	findings, err := m.Scan(ctx)
+	duration := time.Since(start)
+	e.metrics.Record(m.Name(), duration, len(findings))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "module %s scan error: %v\n", m.Name(), err)
 		return

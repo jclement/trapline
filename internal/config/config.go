@@ -12,10 +12,11 @@ import (
 type Config struct {
 	Hostname string          `yaml:"hostname"`
 	StateDir string          `yaml:"state_dir"`
-	Output   OutputConfig    `yaml:"output"`
-	Update   UpdateConfig    `yaml:"update"`
-	Defaults DefaultsConfig  `yaml:"defaults"`
-	Modules  map[string]ModuleConfig `yaml:"modules"`
+	Output    OutputConfig    `yaml:"output"`
+	Dashboard DashboardConfig `yaml:"dashboard"`
+	Update    UpdateConfig    `yaml:"update"`
+	Defaults  DefaultsConfig  `yaml:"defaults"`
+	Modules   map[string]ModuleConfig `yaml:"modules"`
 }
 
 // OutputConfig configures all output sinks.
@@ -61,6 +62,12 @@ type WebhookOutputConfig struct {
 	Level    string        `yaml:"level"`
 	Cooldown time.Duration `yaml:"cooldown"`
 	Template string        `yaml:"template"`
+}
+
+// DashboardConfig configures the agent-to-dashboard reporting.
+type DashboardConfig struct {
+	URL    string `yaml:"url"`    // Dashboard server URL (e.g., "https://monitor.example.com/trapline")
+	Secret string `yaml:"secret"` // This host's publish secret
 }
 
 // UpdateConfig configures self-update behavior.

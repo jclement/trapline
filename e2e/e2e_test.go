@@ -52,8 +52,14 @@ func TestMain(m *testing.M) {
 
 func startContainer(t *testing.T) {
 	t.Helper()
-	// Remove any leftover container (ignore errors/output if it doesn't exist)
+	// Remove any leftover container and wait for full removal
 	runQuiet("docker", "rm", "-f", containerName)
+	for i := 0; i < 20; i++ {
+		if exec.Command("docker", "inspect", containerName).Run() != nil {
+			break // container is gone
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 
 	// Start fresh container
 	if err := run("docker", "run", "-d",

@@ -1,0 +1,13 @@
+FROM alpine:3
+
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY trapline /usr/local/bin/trapline
+RUN chmod 755 /usr/local/bin/trapline
+
+RUN mkdir -p /data
+
+EXPOSE 8080
+
+ENTRYPOINT ["trapline", "server"]
+CMD ["--data", "/data"]

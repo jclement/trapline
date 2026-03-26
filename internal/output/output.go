@@ -56,6 +56,16 @@ func NewManager(cfg config.OutputConfig) (*Manager, error) {
 	return m, nil
 }
 
+// AddDashboardSink adds a sink that POSTs findings to a trapline dashboard server.
+func (m *Manager) AddDashboardSink(url, secret string) {
+	if url == "" || secret == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sinks = append(m.sinks, NewDashboardSink(url, secret))
+}
+
 // Emit sends a finding to all sinks.
 func (m *Manager) Emit(f *finding.Finding) {
 	m.mu.RLock()
@@ -395,6 +405,79 @@ func (s *WebhookSink) Emit(f *finding.Finding) error {
 }
 
 func (s *WebhookSink) Close() error { return nil }
+
+// --- Dashboard Sink ---
+
+// DashboardSink POSTs findings to a trapline dashboard server.
+type DashboardSink struct {
+	url    string
+	secret string
+	client *http.Client
+	batch  []*finding.Finding
+	mu     sync.Mutex
+}
+
+func NewDashboardSink(url, secret string) *DashboardSink {
+	return &DashboardSink{
+		url:    strings.TrimRight(url, "/") + "/api/findings",
+		secret: secret,
+		client: &http.Client{Timeout: 15 * time.Second},
+	}
+}
+
+func (s *DashboardSink) Name() string { return "dashboard" }
+
+func (s *DashboardSink) Emit(f *finding.Finding) error {
+	s.mu.Lock()
+	s.batch = append(s.batch, f)
+	// Flush every 10 findings or if batch is old
+	if len(s.batch) < 10 {
+		s.mu.Unlock()
+		return nil
+	}
+	batch := s.batch
+	s.batch = nil
+	s.mu.Unlock()
+
+	return s.flush(batch)
+}
+
+func (s *DashboardSink) flush(batch []*finding.Finding) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	data, err := json.Marshal(batch)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", s.url, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.secret)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("dashboard post: %w", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("dashboard returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (s *DashboardSink) Close() error {
+	s.mu.Lock()
+	batch := s.batch
+	s.batch = nil
+	s.mu.Unlock()
+	return s.flush(batch)
+}
 
 // FormatText formats a finding as human-readable text.
 func FormatText(f *finding.Finding) string {
