@@ -1,5 +1,5 @@
 dist/
-trapline
+/trapline
 *.exe
 .DS_Store
 /dev/playground/
