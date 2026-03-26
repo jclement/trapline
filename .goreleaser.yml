@@ -20,7 +20,18 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Keyless signing via GitHub Actions OIDC + Sigstore Fulcio.
+# cosign-installer in the release workflow provides the binary;
+# id-token:write permission provides the OIDC identity.
+# No keys to manage — the signature is tied to the GitHub Actions run.
 signs:
   - cmd: cosign
-    args: ["sign-blob", "--yes", "--output-signature=${signature}", "${artifact}"]
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - --yes
+      - --output-signature=${signature}
+      - --output-certificate=${certificate}
+      - ${artifact}
     artifacts: checksum

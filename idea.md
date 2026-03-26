@@ -827,7 +827,8 @@ Release assets look like:
 trapline_linux_amd64        (static binary, ~8-12 MB)
 trapline_linux_arm64        (static binary, ~8-12 MB)
 checksums.txt               (SHA-256 hashes)
-checksums.txt.sig           (cosign signature via Sigstore keyless)
+checksums.txt.sig           (cosign keyless signature via GitHub Actions OIDC)
+checksums.txt.pem           (Fulcio certificate — ties signature to the GH Actions run)
 ```
 
 Install on a new host is two commands:

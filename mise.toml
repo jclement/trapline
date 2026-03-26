@@ -2,7 +2,6 @@
 go = "1.23"
 goreleaser = "2"
 golangci-lint = "1"
-cosign = "2"
 
 [tasks.build]
 run = "CGO_ENABLED=0 go build -o trapline ./cmd/trapline"
