@@ -1,0 +1,52 @@
+# Minimal config for e2e tests — fast intervals, console-only output
+state_dir: /var/lib/trapline
+
+output:
+  console:
+    enabled: true
+    format: json
+    level: info
+  file:
+    enabled: false
+  tcp:
+    enabled: false
+  webhook:
+    enabled: false
+
+update:
+  enabled: false
+
+defaults:
+  interval: 2s
+  cooldown: 1s
+
+modules:
+  file-integrity:
+    enabled: true
+    interval: 2s
+  packages:
+    enabled: true
+    interval: 5s
+  ports:
+    enabled: true
+    interval: 2s
+  processes:
+    enabled: true
+    interval: 2s
+  users:
+    enabled: true
+    interval: 2s
+  cron:
+    enabled: true
+    interval: 2s
+  suid:
+    enabled: true
+    interval: 5s
+  ssh:
+    enabled: true
+    interval: 2s
+  permissions:
+    enabled: true
+    interval: 5s
+  containers:
+    enabled: false
