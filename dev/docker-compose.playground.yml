@@ -1,3 +1,13 @@
+# Trapline Playground
+#
+# Launches a tmux split-screen environment:
+#   Top:    trapline scanning every 5s, findings stream live
+#   Bottom: interactive shell to break things
+#
+# Usage:
+#   mise run playground        # build + start + attach
+#   mise run playground-down   # tear down
+
 services:
   trapline:
     container_name: trapline-playground
@@ -6,14 +16,5 @@ services:
       dockerfile: dev/Dockerfile.playground
     volumes:
       - ./playground/trapline.yml:/etc/trapline/trapline.yml:ro
-    init: true
-    depends_on:
-      - sink
+    stdin_open: true
     tty: true
-
-  sink:
-    container_name: trapline-playground-sink
-    image: alpine:3
-    command: ["sh", "-c", "apk add --no-cache socat >/dev/null 2>&1 && echo 'Listening for findings on :9999...' && socat -u TCP-LISTEN:9999,reuseaddr,fork STDOUT"]
-    expose:
-      - "9999"

@@ -2,17 +2,33 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    systemd systemd-sysv \
+    tmux \
     openssh-server \
     cron \
     sudo \
     curl \
     net-tools \
     procps \
+    python3 \
+    vim-tiny \
     && rm -rf /var/lib/apt/lists/*
+
+# Set up sshd_config for testing
+RUN mkdir -p /run/sshd && \
+    echo "PasswordAuthentication no" >> /etc/ssh/sshd_config && \
+    echo "PermitRootLogin no" >> /etc/ssh/sshd_config
+
+# Create a cron job for baseline
+RUN echo "0 * * * * root /usr/bin/echo heartbeat" > /etc/cron.d/heartbeat
 
 COPY dist/trapline /usr/local/bin/trapline
 RUN chmod 755 /usr/local/bin/trapline
 
-STOPSIGNAL SIGRTMIN+3
-CMD ["/sbin/init"]
+# Create state directories
+RUN mkdir -p /etc/trapline /var/lib/trapline/baselines /var/lib/trapline/state /var/log/trapline
+
+# Entrypoint script that launches tmux with split panes
+COPY dev/playground/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+CMD ["/entrypoint.sh"]

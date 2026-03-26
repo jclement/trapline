@@ -24,16 +24,13 @@ description = "Build release binaries locally (no publish)"
 run = "goreleaser release --snapshot --clean"
 
 [tasks.playground]
-description = "Build, deploy to Ubuntu container, install & start trapline"
+description = "Build and launch tmux playground (split-screen: findings + shell)"
 run = """
 CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) go build -o dist/trapline ./cmd/trapline \
   && docker compose -f dev/docker-compose.playground.yml up --build -d \
-  && echo '' \
-  && echo 'Trapline playground is running.' \
-  && echo '  Shell in:       docker exec -it trapline-playground bash' \
-  && echo '  Watch findings: docker logs -f trapline-playground-sink' \
-  && echo '  Rebuild:        mise run playground' \
-  && echo '  Tear down:      mise run playground-down'
+  && echo 'Attaching to playground (Ctrl-B D to detach, mise run playground-down to stop)...' \
+  && sleep 1 \
+  && docker attach trapline-playground
 """
 
 [tasks.test-e2e]
