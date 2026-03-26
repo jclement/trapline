@@ -33,3 +33,44 @@ CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) go build -o dist/trapline ./cmd
 [tasks.test-e2e]
 description = "Run Docker-based e2e tests"
 run = "./e2e/run.sh"
+
+[tasks.release]
+description = "Tag and push a release (interactive: pick major/minor/patch)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Get current max tag (or default to v0.0.0)
+current=$(git tag -l 'v*' --sort=-v:refname | head -1)
+if [ -z "$current" ]; then
+  current="v0.0.0"
+fi
+
+# Parse semver
+major=$(echo "$current" | sed 's/v//' | cut -d. -f1)
+minor=$(echo "$current" | sed 's/v//' | cut -d. -f2)
+patch=$(echo "$current" | sed 's/v//' | cut -d. -f3)
+
+echo "Current version: $current"
+echo ""
+echo "  1) patch  → v${major}.${minor}.$((patch + 1))"
+echo "  2) minor  → v${major}.$((minor + 1)).0"
+echo "  3) major  → v$((major + 1)).0.0"
+echo ""
+read -rp "Bump [1/2/3]: " choice
+
+case "$choice" in
+  1) new="v${major}.${minor}.$((patch + 1))" ;;
+  2) new="v${major}.$((minor + 1)).0" ;;
+  3) new="v$((major + 1)).0.0" ;;
+  *) echo "Invalid choice"; exit 1 ;;
+esac
+
+echo ""
+echo "Tagging $new and pushing..."
+git tag "$new"
+git push origin main "$new"
+echo ""
+echo "Done! GitHub Actions will build and publish the release."
+echo "Watch: https://github.com/jclement/tripline/actions"
+"""
