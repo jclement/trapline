@@ -24,19 +24,16 @@ description = "Build release binaries locally (no publish)"
 run = "goreleaser release --snapshot --clean"
 
 [tasks.playground]
-description = "Build and launch tmux playground (split-screen: findings + shell)"
+description = "Build and launch tmux playground (quit tmux = container dies, clean slate)"
 run = """
 CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) go build -o dist/trapline ./cmd/trapline \
-  && docker compose -f dev/docker-compose.playground.yml up --build -d \
-  && echo 'Attaching to playground (Ctrl-B D to detach, mise run playground-down to stop)...' \
-  && sleep 1 \
-  && docker attach trapline-playground
+  && docker build -t trapline-playground -f dev/Dockerfile.playground . \
+  && docker run -it --rm \
+      --name trapline-playground \
+      -v "$(pwd)/dev/playground/trapline.yml:/etc/trapline/trapline.yml:ro" \
+      trapline-playground
 """
 
 [tasks.test-e2e]
 description = "Run Docker-based e2e tests"
 run = "./e2e/run.sh"
-
-[tasks.playground-down]
-description = "Stop and remove playground containers"
-run = "docker compose -f dev/docker-compose.playground.yml down -v"
