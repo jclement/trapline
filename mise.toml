@@ -10,14 +10,14 @@ run = "CGO_ENABLED=0 go build -o trapline ./cmd/trapline"
 run = "CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) go build -o dist/trapline ./cmd/trapline"
 
 [tasks.test]
-run = "go test ./..."
+run = "CGO_ENABLED=0 go test ./..."
 
 [tasks.test-integration]
 description = "Run integration tests in Docker (Linux environment)"
 run = "docker compose -f dev/docker-compose.test.yml run --rm integration"
 
 [tasks.lint]
-run = "golangci-lint run ./..."
+run = "CGO_ENABLED=0 golangci-lint run ./..."
 
 [tasks.snapshot]
 description = "Build release binaries locally (no publish)"

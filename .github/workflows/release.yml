@@ -7,6 +7,9 @@ permissions:
   contents: write
   id-token: write
 
+env:
+  CGO_ENABLED: "0"
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -16,6 +19,6 @@ jobs:
           fetch-depth: 0
       - uses: jdx/mise-action@v2
       - uses: sigstore/cosign-installer@v3
-      - run: goreleaser release
+      - run: mise x -- goreleaser release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
