@@ -1,0 +1,51 @@
+state_dir: /var/lib/trapline
+
+output:
+  console:
+    enabled: true
+    format: text
+    level: info
+  tcp:
+    enabled: false
+
+defaults:
+  interval: 10s
+  cooldown: 30s
+
+modules:
+  file-integrity:
+    enabled: true
+    interval: 5s
+  packages:
+    enabled: false   # dpkg --verify is noisy in Docker (stripped base image)
+  ports:
+    enabled: true
+    interval: 5s
+  processes:
+    enabled: true
+    interval: 5s
+  users:
+    enabled: true
+    interval: 10s
+  cron:
+    enabled: true
+    interval: 10s
+  suid:
+    enabled: true
+    interval: 30s
+  ssh:
+    enabled: true
+    interval: 10s
+  permissions:
+    enabled: true
+    interval: 30s
+  containers:
+    enabled: false
+  rootkit:
+    enabled: true
+    interval: 10s
+  malware:
+    enabled: true
+    interval: 30s
+  network:
+    enabled: false   # not useful in a throwaway container
