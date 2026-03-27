@@ -189,7 +189,9 @@ func TestIgnoresDeviceFiles(t *testing.T) {
 	if err := os.Symlink("/dev/null", filepath.Join(m.DevDir, "link_to_null")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(m.DevDir, "subdir"), 0755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(filepath.Join(m.DevDir, "subdir"), 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	writeFile(t, filepath.Join(m.ProcDir, "modules"), "")
 
@@ -244,7 +246,9 @@ func TestPromiscuousInterface(t *testing.T) {
 	m, _ := initModule(t)
 
 	ethDir := filepath.Join(m.SysDir, "class", "net", "eth0")
-	if err := os.MkdirAll(ethDir, 0755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(ethDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, filepath.Join(ethDir, "flags"), "0x1103")
 
 	writeFile(t, filepath.Join(m.ProcDir, "modules"), "")

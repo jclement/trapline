@@ -40,8 +40,12 @@ func setupTestFiles(t *testing.T) (string, string, string) {
 	if err := os.WriteFile(passwdPath, []byte(testPasswd), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(groupPath, []byte(testGroup), 0644); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(sudoersPath, []byte("root ALL=(ALL:ALL) ALL\n"), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(groupPath, []byte(testGroup), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sudoersPath, []byte("root ALL=(ALL:ALL) ALL\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	return passwdPath, groupPath, sudoersPath
 }
@@ -83,7 +87,9 @@ func TestDetectsNewUser(t *testing.T) {
 	_, _ = m.Scan(context.Background()) // baseline
 
 	// Add a new user
-	if err := os.WriteFile(passwdPath, []byte(testPasswd+"hacker:x:1001:1001::/home/hacker:/bin/bash\n"), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(passwdPath, []byte(testPasswd+"hacker:x:1001:1001::/home/hacker:/bin/bash\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 	found := false

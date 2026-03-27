@@ -106,7 +106,9 @@ func TestExcludePaths(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	excludeDir := filepath.Join(dir, "docker")
-	if err := os.MkdirAll(excludeDir, 0755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(excludeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	suidFile := filepath.Join(excludeDir, "ignore-me")
 	_ = os.WriteFile(suidFile, []byte("#!/bin/sh\n"), 0755)
@@ -138,7 +140,9 @@ func TestRebaseline(t *testing.T) {
 
 	suidFile := filepath.Join(dir, "new-legit")
 	_ = os.WriteFile(suidFile, []byte("x"), 0755)
-	if err := os.Chmod(suidFile, 0755|os.ModeSetuid); err != nil { t.Fatal(err) }
+	if err := os.Chmod(suidFile, 0755|os.ModeSetuid); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := m.Rebaseline(context.Background()); err != nil {
 		t.Fatal(err)

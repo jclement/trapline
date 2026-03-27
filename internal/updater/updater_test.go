@@ -62,7 +62,9 @@ func TestCopyFile(t *testing.T) {
 	src := filepath.Join(dir, "src")
 	dst := filepath.Join(dir, "dst")
 
-	if err := os.WriteFile(src, []byte("hello world"), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(src, []byte("hello world"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := copyFile(src, dst); err != nil {
 		t.Fatal(err)

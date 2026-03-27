@@ -53,7 +53,9 @@ func TestScanLearningMode(t *testing.T) {
 
 	m := New()
 	m.ProcDir = procDir
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, err := m.Scan(context.Background())
 	if err != nil {

@@ -234,7 +234,9 @@ func TestMultipleNewConnections(t *testing.T) {
 	content := procHeader
 	tcpPath := writeProcFile(t, dir, "tcp", content)
 	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 	_, _ = m.Scan(context.Background()) // baseline
 
 	// Two new public IPs: 216.58.196.78 and 93.184.216.34
@@ -265,7 +267,9 @@ func TestRebaseline(t *testing.T) {
 	content := procHeader
 	tcpPath := writeProcFile(t, dir, "tcp", content)
 	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 	_, _ = m.Scan(context.Background()) // baseline (empty)
 
 	// Add a new public IP
@@ -312,7 +316,9 @@ func TestIPv6Parsing(t *testing.T) {
 
 	tcp6Path := writeProcFile(t, dir, "tcp6", tcp6Content)
 	m := newTestModule(t, tcpPath, tcp6Path)
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	// First scan = learning
 	findings, err := m.Scan(context.Background())

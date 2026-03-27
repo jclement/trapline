@@ -276,7 +276,9 @@ func TestEngineHostname(t *testing.T) {
 		},
 	}
 	e.Register(m)
-	if err := e.Init(); err != nil { t.Fatal(err) }
+	if err := e.Init(); err != nil {
+		t.Fatal(err)
+	}
 
 	e.scanAndEmit(context.Background(), m)
 

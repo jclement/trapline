@@ -62,7 +62,9 @@ func TestParseProcNet(t *testing.T) {
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tcp")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	entries, err := parseProcNet(path, "tcp")
 	if err != nil {
@@ -132,7 +134,9 @@ func TestDetectsNewPort(t *testing.T) {
 	m.ProcUDP = filepath.Join(dir, "none")
 	m.ProcUDP6 = filepath.Join(dir, "none")
 
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 	_, _ = m.Scan(context.Background()) // baseline
 
 	// Add a new port
@@ -169,7 +173,9 @@ func TestDetectsGonePort(t *testing.T) {
 	m.ProcUDP = filepath.Join(dir, "none")
 	m.ProcUDP6 = filepath.Join(dir, "none")
 
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 	_, _ = m.Scan(context.Background()) // baseline
 
 	// Remove port 80
@@ -204,7 +210,9 @@ func TestRebaseline(t *testing.T) {
 	m.ProcUDP = filepath.Join(dir, "none")
 	m.ProcUDP6 = filepath.Join(dir, "none")
 
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 	_, _ = m.Scan(context.Background()) // baseline
 
 	// Add port then rebaseline

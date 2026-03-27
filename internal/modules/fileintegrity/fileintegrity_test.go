@@ -155,7 +155,9 @@ func TestDetectsNewFile(t *testing.T) {
 
 	// Add new file matching glob
 	newFile := filepath.Join(dir, "newfile")
-	if err := os.WriteFile(newFile, []byte("new"), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(newFile, []byte("new"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -241,7 +243,9 @@ func TestInotifyDetectsChange(t *testing.T) {
 	}
 
 	// Modify file — inotify should detect it
-	if err := os.WriteFile(testFile, []byte("modified-by-inotify"), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(testFile, []byte("modified-by-inotify"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Give the watcher goroutine a moment to process the event
 	time.Sleep(200 * time.Millisecond)

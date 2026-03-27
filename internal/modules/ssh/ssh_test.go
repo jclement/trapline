@@ -43,11 +43,15 @@ func TestSecureConfig(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "sshd_config")
-	if err := os.WriteFile(configPath, []byte(secureConfig), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(configPath, []byte(secureConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
 	m.ConfigPath = configPath
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, err := m.Scan(context.Background())
 	if err != nil {
@@ -65,11 +69,15 @@ func TestInsecureConfig(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "sshd_config")
-	if err := os.WriteFile(configPath, []byte(insecureConfig), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(configPath, []byte(insecureConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
 	m.ConfigPath = configPath
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 
@@ -88,14 +96,20 @@ func TestDetectsConfigChange(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "sshd_config")
-	if err := os.WriteFile(configPath, []byte(secureConfig), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(configPath, []byte(secureConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
 	m.ConfigPath = configPath
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 	_, _ = m.Scan(context.Background()) // baseline
 
-	if err := os.WriteFile(configPath, []byte(secureConfig+"AllowUsers admin\n"), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(configPath, []byte(secureConfig+"AllowUsers admin\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	findings, _ := m.Scan(context.Background())
 	found := false
@@ -113,7 +127,9 @@ func TestRebaseline(t *testing.T) {
 	cfg := testModuleConfig(t)
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "sshd_config")
-	if err := os.WriteFile(configPath, []byte(secureConfig), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(configPath, []byte(secureConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New()
 	m.ConfigPath = configPath

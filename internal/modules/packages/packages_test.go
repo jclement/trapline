@@ -29,7 +29,9 @@ func TestName(t *testing.T) {
 func TestScanWithMockVerify(t *testing.T) {
 	cfg := testModuleConfig(t)
 	m := New()
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	m.VerifyCmd = func(ctx context.Context) ([]byte, error) {
 		return []byte("??5?????? c /usr/sbin/sshd\n??5?????? c /etc/ssh/sshd_config\n"), nil
@@ -66,7 +68,9 @@ func TestScanWithMockVerify(t *testing.T) {
 func TestScanClean(t *testing.T) {
 	cfg := testModuleConfig(t)
 	m := New()
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	m.VerifyCmd = func(ctx context.Context) ([]byte, error) {
 		return []byte(""), nil
@@ -84,7 +88,9 @@ func TestScanClean(t *testing.T) {
 func TestScanDpkgUnavailable(t *testing.T) {
 	cfg := testModuleConfig(t)
 	m := New()
-	if err := m.Init(cfg); err != nil { t.Fatal(err) }
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	m.VerifyCmd = func(ctx context.Context) ([]byte, error) {
 		return nil, &exec.Error{Name: "dpkg", Err: exec.ErrNotFound}
