@@ -153,6 +153,84 @@ func TestDenyList(t *testing.T) {
 	}
 }
 
+func TestExcludeFiltersKworkers(t *testing.T) {
+	cfg := testModuleConfig(t)
+	procDir := t.TempDir()
+	createFakeProc(t, procDir, 1, "init")
+	createFakeProc(t, procDir, 100, "sshd")
+
+	m := New()
+	m.ProcDir = procDir
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
+
+	// Add kworker processes — should be excluded by default
+	createFakeProc(t, procDir, 500, "kworker/0:1-events")
+	createFakeProc(t, procDir, 501, "kworker/3:2H-kblockd")
+
+	findings, _ := m.Scan(context.Background())
+	for _, f := range findings {
+		if strings.Contains(f.FindingID, "kworker") {
+			t.Errorf("kworker should be excluded, got finding: %s", f.FindingID)
+		}
+	}
+}
+
+func TestExcludeMissingProcess(t *testing.T) {
+	cfg := testModuleConfig(t)
+	procDir := t.TempDir()
+	createFakeProc(t, procDir, 1, "init")
+	createFakeProc(t, procDir, 100, "sshd")
+
+	// Use custom exclude that matches sshd
+	cfg.Settings["exclude"] = []interface{}{"sshd"}
+
+	m := New()
+	m.ProcDir = procDir
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
+
+	// Remove sshd — should NOT generate missing finding since it's excluded
+	_ = os.RemoveAll(filepath.Join(procDir, "100"))
+
+	findings, _ := m.Scan(context.Background())
+	for _, f := range findings {
+		if f.FindingID == "process-missing:sshd" {
+			t.Error("excluded process should not generate missing finding")
+		}
+	}
+}
+
+func TestCustomExcludePatterns(t *testing.T) {
+	cfg := testModuleConfig(t)
+	cfg.Settings["exclude"] = []interface{}{"test-*", "tmp*"}
+	procDir := t.TempDir()
+	createFakeProc(t, procDir, 1, "init")
+
+	m := New()
+	m.ProcDir = procDir
+	_ = m.Init(cfg)
+	_, _ = m.Scan(context.Background()) // baseline
+
+	createFakeProc(t, procDir, 200, "test-worker")
+	createFakeProc(t, procDir, 201, "tmpclean")
+	createFakeProc(t, procDir, 202, "realproc")
+
+	findings, _ := m.Scan(context.Background())
+	foundReal := false
+	for _, f := range findings {
+		if strings.Contains(f.FindingID, "test-worker") || strings.Contains(f.FindingID, "tmpclean") {
+			t.Errorf("excluded process should not appear in findings: %s", f.FindingID)
+		}
+		if strings.Contains(f.FindingID, "realproc") {
+			foundReal = true
+		}
+	}
+	if !foundReal {
+		t.Error("non-excluded process should still generate finding")
+	}
+}
+
 func TestRebaseline(t *testing.T) {
 	cfg := testModuleConfig(t)
 	procDir := t.TempDir()

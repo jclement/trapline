@@ -79,6 +79,9 @@
 //   - deny ([]map[string]interface{}): List of denied process names. Each entry
 //     has a "name" (string) and optional "min_uptime" (int, currently reserved).
 //     If not configured, defaults to ["xmrig", "cryptominer"].
+//   - exclude ([]string): List of glob patterns for process names to ignore.
+//     Matched using filepath.Match. If not configured, defaults to ["kworker/*"]
+//     to suppress noise from ephemeral kernel worker threads.
 //   - ProcDir (string): Path to /proc, overridable for testing.
 package processes
 
@@ -123,6 +126,7 @@ type Module struct {
 	baseline       []ProcessEntry
 	baselineLoaded bool
 	deny           []DenyEntry
+	exclude        []string
 	// ProcDir is the path to /proc. Exported for testing so unit tests can
 	// point at a fixture directory with synthetic /proc/<pid>/ entries.
 	ProcDir string
@@ -179,7 +183,36 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 		}
 	}
 
+	// Parse exclude list from config. Each entry is a glob pattern matched
+	// against process names using filepath.Match. This filters out ephemeral
+	// processes like kernel workers that churn constantly and produce noise.
+	if exclRaw, ok := cfg.Settings["exclude"]; ok {
+		if exclList, ok := exclRaw.([]interface{}); ok {
+			for _, e := range exclList {
+				if pattern, ok := e.(string); ok {
+					m.exclude = append(m.exclude, pattern)
+				}
+			}
+		}
+	}
+
+	// Default exclude list: kworker threads are ephemeral kernel workers
+	// that constantly spawn and die, producing endless false positives.
+	if len(m.exclude) == 0 {
+		m.exclude = []string{"kworker/*"}
+	}
+
 	return nil
+}
+
+// isExcluded returns true if the process name matches any exclude pattern.
+func (m *Module) isExcluded(name string) bool {
+	for _, pattern := range m.exclude {
+		if matched, _ := filepath.Match(pattern, name); matched {
+			return true
+		}
+	}
+	return false
 }
 
 // Scan enumerates running processes and produces findings for deny list matches,
@@ -264,6 +297,9 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 		curNames[p.Name] = true
 	}
 	for _, base := range m.baseline {
+		if m.isExcluded(base.Name) {
+			continue
+		}
 		if !curNames[base.Name] {
 			findings = append(findings, finding.Finding{
 				Timestamp: time.Now().UTC(),
@@ -318,6 +354,11 @@ func (m *Module) scanProcesses() ([]ProcessEntry, error) {
 		if err != nil {
 			// Process may have exited between readdir and read -- this is
 			// normal and expected (TOCTOU race with /proc).
+			continue
+		}
+
+		// Skip excluded processes before dedup and collection.
+		if m.isExcluded(proc.Name) {
 			continue
 		}
 

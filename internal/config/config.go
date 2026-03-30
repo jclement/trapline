@@ -346,7 +346,7 @@ func Default() *Config {
 			"permissions":    {Enabled: true, Interval: time.Hour},
 			"rootkit":        {Enabled: true, Interval: 30 * time.Minute},
 			"malware":        {Enabled: true, Interval: 15 * time.Minute},
-			"network":        {Enabled: true, Interval: 60 * time.Second},
+			"network":        {Enabled: false, Interval: 60 * time.Second},
 		},
 	}
 }

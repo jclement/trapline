@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jclement/tripline/internal/engine"
@@ -35,6 +36,7 @@ func newTestModule(t *testing.T, tcpPath, tcp6Path string) *Module {
 	m := New()
 	m.ProcTCP = tcpPath
 	m.ProcTCP6 = tcp6Path
+	m.ProcDir = t.TempDir() // empty dir = no process resolution
 	return m
 }
 
@@ -76,6 +78,9 @@ func TestParseEstablishedConnections(t *testing.T) {
 	}
 	if c.State != "ESTABLISHED" {
 		t.Errorf("state = %q, want ESTABLISHED", c.State)
+	}
+	if c.Inode != "12345" {
+		t.Errorf("inode = %q, want 12345", c.Inode)
 	}
 }
 
@@ -160,8 +165,8 @@ func TestDetectsNewOutbound(t *testing.T) {
 	if findings[0].FindingID != "network-new-outbound:93.184.216.34" {
 		t.Errorf("finding ID = %q, want network-new-outbound:93.184.216.34", findings[0].FindingID)
 	}
-	if findings[0].Severity != "high" {
-		t.Errorf("severity = %q, want high", findings[0].Severity)
+	if findings[0].Severity != "medium" {
+		t.Errorf("severity = %q, want medium", findings[0].Severity)
 	}
 }
 
@@ -252,10 +257,10 @@ func TestMultipleNewConnections(t *testing.T) {
 	if len(findings) != 2 {
 		t.Fatalf("expected 2 findings, got %d", len(findings))
 	}
-	// Multiple new connections should be critical
+	// Multiple new connections should be high
 	for _, f := range findings {
-		if f.Severity != "critical" {
-			t.Errorf("severity = %q, want critical for multi-connection burst", f.Severity)
+		if f.Severity != "high" {
+			t.Errorf("severity = %q, want high for multi-connection burst", f.Severity)
 		}
 	}
 }
@@ -368,6 +373,192 @@ func TestIsPrivateIP(t *testing.T) {
 		if got != tt.private {
 			t.Errorf("isPrivateIP(%q) = %v, want %v", tt.ip, got, tt.private)
 		}
+	}
+}
+
+func TestBuildInodeMap(t *testing.T) {
+	procDir := t.TempDir()
+
+	// Create fake /proc/1234/ with socket symlinks
+	pid1Dir := filepath.Join(procDir, "1234")
+	fdDir1 := filepath.Join(pid1Dir, "fd")
+	if err := os.MkdirAll(fdDir1, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pid1Dir, "comm"), []byte("curl\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("socket:[12345]", filepath.Join(fdDir1, "3")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/dev/null", filepath.Join(fdDir1, "4")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create another process
+	pid2Dir := filepath.Join(procDir, "5678")
+	fdDir2 := filepath.Join(pid2Dir, "fd")
+	if err := os.MkdirAll(fdDir2, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pid2Dir, "comm"), []byte("sshd\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("socket:[99999]", filepath.Join(fdDir2, "5")); err != nil {
+		t.Fatal(err)
+	}
+
+	m := buildInodeMap(procDir)
+
+	if proc, ok := m["12345"]; !ok {
+		t.Error("expected to find inode 12345")
+	} else {
+		if proc.Name != "curl" {
+			t.Errorf("expected name 'curl', got %q", proc.Name)
+		}
+		if proc.PID != 1234 {
+			t.Errorf("expected PID 1234, got %d", proc.PID)
+		}
+	}
+
+	if proc, ok := m["99999"]; !ok {
+		t.Error("expected to find inode 99999")
+	} else if proc.Name != "sshd" {
+		t.Errorf("expected name 'sshd', got %q", proc.Name)
+	}
+
+	if _, ok := m["00000"]; ok {
+		t.Error("expected not found for non-existent inode")
+	}
+}
+
+func TestAllowedProcessFiltering(t *testing.T) {
+	cfg := testModuleConfig(t)
+	cfg.Settings["allowed_processes"] = []interface{}{"apt"}
+
+	dir := t.TempDir()
+	procDir := t.TempDir()
+
+	// Create fake process: PID 100 = "apt"
+	pid100Dir := filepath.Join(procDir, "100")
+	fdDir := filepath.Join(pid100Dir, "fd")
+	if err := os.MkdirAll(fdDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pid100Dir, "comm"), []byte("apt\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("socket:[23456]", filepath.Join(fdDir, "3")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Baseline: empty
+	content := procHeader
+	tcpPath := writeProcFile(t, dir, "tcp", content)
+	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
+	m.ProcDir = procDir
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = m.Scan(context.Background()) // baseline
+
+	// New connection with inode 23456 (owned by apt) to 93.184.216.34:80
+	content2 := procHeader +
+		"   0: 0F02000A:A000 22D8B85D:0050 01 00000000:00000000 00:00000000 00000000     0        0 23456 1 0000000000000000 100 0 0 10 0\n"
+	writeProcFile(t, dir, "tcp", content2)
+
+	findings, err := m.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for allowlisted process apt, got %d", len(findings))
+	}
+}
+
+func TestProcessInfoInFindings(t *testing.T) {
+	cfg := testModuleConfig(t)
+	dir := t.TempDir()
+	procDir := t.TempDir()
+
+	// Create fake process: PID 200 = "curl"
+	pid200Dir := filepath.Join(procDir, "200")
+	fdDir := filepath.Join(pid200Dir, "fd")
+	if err := os.MkdirAll(fdDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pid200Dir, "comm"), []byte("curl\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("socket:[23456]", filepath.Join(fdDir, "5")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Baseline: empty
+	content := procHeader
+	tcpPath := writeProcFile(t, dir, "tcp", content)
+	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
+	m.ProcDir = procDir
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = m.Scan(context.Background()) // baseline
+
+	// New connection with inode 23456 (owned by curl) to 93.184.216.34:80
+	content2 := procHeader +
+		"   0: 0F02000A:A000 22D8B85D:0050 01 00000000:00000000 00:00000000 00000000     0        0 23456 1 0000000000000000 100 0 0 10 0\n"
+	writeProcFile(t, dir, "tcp", content2)
+
+	findings, err := m.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	f := findings[0]
+	if !strings.Contains(f.Summary, "curl") {
+		t.Errorf("expected summary to contain 'curl', got %q", f.Summary)
+	}
+	if f.Detail["process_name"] != "curl" {
+		t.Errorf("expected detail process_name='curl', got %v", f.Detail["process_name"])
+	}
+	if f.Detail["process_pid"] != 200 {
+		t.Errorf("expected detail process_pid=200, got %v", f.Detail["process_pid"])
+	}
+}
+
+func TestUnknownProcessInFindings(t *testing.T) {
+	cfg := testModuleConfig(t)
+	dir := t.TempDir()
+
+	// Baseline: empty
+	content := procHeader
+	tcpPath := writeProcFile(t, dir, "tcp", content)
+	m := newTestModule(t, tcpPath, filepath.Join(dir, "nonexistent"))
+	// ProcDir already set to empty temp dir — no process matches
+	if err := m.Init(cfg); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = m.Scan(context.Background()) // baseline
+
+	// New connection with unresolvable inode
+	content2 := procHeader +
+		"   0: 0F02000A:A000 22D8B85D:0050 01 00000000:00000000 00:00000000 00000000     0        0 99999 1 0000000000000000 100 0 0 10 0\n"
+	writeProcFile(t, dir, "tcp", content2)
+
+	findings, err := m.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Detail["process_name"] != "unknown" {
+		t.Errorf("expected process_name='unknown', got %v", findings[0].Detail["process_name"])
+	}
+	if !strings.Contains(findings[0].Summary, "unknown") {
+		t.Errorf("expected summary to contain 'unknown', got %q", findings[0].Summary)
 	}
 }
 

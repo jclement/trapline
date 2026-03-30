@@ -74,7 +74,7 @@ Trapline ships with 13 scanner modules. Each runs independently on its own sched
 | **permissions** | World-writable files, bad ownership, shadow file permissions | 1h |
 | **rootkit** | Kernel module baselining, hidden files, /dev anomalies, promiscuous NICs, deleted-exe processes | 30m |
 | **malware** | Smart ClamAV integration — only scans new/modified files in high-risk dirs | 15m |
-| **network** | Outbound connection monitoring — baselines known remote IPs, alerts on new public destinations | 60s |
+| **network** | Outbound connection monitoring with process correlation — baselines known remote IPs, identifies owning process, supports process allowlisting (disabled by default) | 60s |
 
 ### How It Avoids Tripwire's Noise
 
@@ -174,6 +174,9 @@ modules:
   processes:
     enabled: true
     interval: 30s
+    exclude:                    # glob patterns for process names to ignore (default: ["kworker/*"])
+      - "kworker/*"
+      - "kthreadd"
     deny:
       - name: xmrig
       - name: nc
@@ -207,8 +210,12 @@ modules:
     #   - /var/tmp
     #   - /dev/shm
   network:
-    enabled: true
+    enabled: false                  # disabled by default — noisy on systems with Docker/dynamic outbound traffic
     interval: 60s
+    allowed_processes:              # connections from these processes are silently ignored
+      - apt
+      - dpkg
+      - freshclam
 ```
 
 ---
