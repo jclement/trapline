@@ -18,7 +18,13 @@ The name: a trapline is a route a trapper walks regularly, checking each trap al
 
 ## Install
 
-Two commands. That's it.
+One command:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/jclement/tripline/main/install.sh | sudo bash
+```
+
+Or manually — download the binary and run the installer yourself:
 
 ```bash
 curl -sL https://github.com/jclement/tripline/releases/latest/download/trapline_linux_amd64 -o trapline && chmod +x trapline
