@@ -222,6 +222,13 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 			}
 
 			mode := info.Mode()
+			// Skip symlinks — their permission bits are always 0777 on Linux
+			// (the kernel ignores symlink permissions entirely). Checking them
+			// would produce false positives for every symlink in /etc/ssl/certs/,
+			// /etc/alternatives/, etc.
+			if mode&os.ModeSymlink != 0 {
+				return nil
+			}
 			// Check the "other write" bit (0002). World-writable files in system
 			// directories are dangerous because ANY local user can modify them.
 			// This catches scenarios like a misconfigured cron job file that an
