@@ -196,6 +196,9 @@ modules:
   ssh:
     enabled: true
     interval: 15m
+    # allowed_users:              # optional: alert CRITICAL on SSH sessions by users not in this list
+    #   - admin
+    #   - deploy
   permissions:
     enabled: true
     interval: 1h
