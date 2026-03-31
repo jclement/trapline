@@ -267,7 +267,7 @@ func cmdRun(configPath string) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not watch config file: %v\n", err)
 	} else {
-		defer watcher.Close()
+		defer func() { _ = watcher.Close() }()
 		if err := watcher.Add(configPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not watch %s: %v\n", configPath, err)
 		}

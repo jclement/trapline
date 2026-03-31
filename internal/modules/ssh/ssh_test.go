@@ -210,7 +210,7 @@ func createFakeSSHDSession(t *testing.T, procDir string, pid int, uid int) {
 		t.Fatal(err)
 	}
 	// Simulate SSH_CONNECTION env var
-	environ := fmt.Sprintf("SSH_CONNECTION=192.168.1.100 54321 10.0.0.1 22\x00HOME=/home/testuser\x00")
+	environ := "SSH_CONNECTION=192.168.1.100 54321 10.0.0.1 22\x00HOME=/home/testuser\x00"
 	if err := os.WriteFile(filepath.Join(pidDir, "environ"), []byte(environ), 0644); err != nil {
 		t.Fatal(err)
 	}
