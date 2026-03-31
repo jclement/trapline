@@ -25,7 +25,7 @@ func TestCheck(t *testing.T) {
 	}))
 	defer server.Close()
 
-	u := New("test/repo", "0.1.0", "/usr/local/bin/trapline")
+	u := New("test/repo", "0.1.0", "/usr/local/bin/trapline", "stable")
 	u.client = server.Client()
 
 	// Override the URL by making a request to the test server
@@ -85,7 +85,7 @@ func TestDownload(t *testing.T) {
 	}))
 	defer server.Close()
 
-	u := New("test/repo", "0.1.0", "/tmp/trapline")
+	u := New("test/repo", "0.1.0", "/tmp/trapline", "stable")
 	u.client = server.Client()
 
 	dest := filepath.Join(t.TempDir(), "downloaded")
@@ -101,7 +101,7 @@ func TestDownload(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	u := New("jclement/trapline", "0.1.0", "/usr/local/bin/trapline")
+	u := New("jclement/trapline", "0.1.0", "/usr/local/bin/trapline", "stable")
 	if u.Repo != "jclement/trapline" {
 		t.Errorf("Repo = %q", u.Repo)
 	}

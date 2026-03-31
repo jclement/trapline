@@ -60,6 +60,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/jclement/trapline/internal/config"
@@ -283,6 +284,7 @@ type FileSink struct {
 	path       string           // canonical path to the log file (without .N suffix)
 	maxSizeMB  int              // file size threshold in megabytes that triggers rotation; 0 disables rotation
 	maxBackups int              // maximum number of rotated backup files to keep (default 5)
+	maxAgeDays int              // maximum age in days for backup files; 0 disables age-based cleanup
 	mu         sync.Mutex       // serialises writes and rotation
 }
 
@@ -312,6 +314,7 @@ func NewFileSink(cfg config.FileOutputConfig) (*FileSink, error) {
 		path:       cfg.Path,
 		maxSizeMB:  cfg.MaxSizeMB,
 		maxBackups: maxBackups,
+		maxAgeDays: cfg.MaxAgeDays,
 	}, nil
 }
 
@@ -392,6 +395,21 @@ func (s *FileSink) rotate() {
 		f, _ = os.OpenFile(s.path+".1", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
 	}
 	s.f = f
+
+	// Age-based cleanup: remove backup files older than maxAgeDays.
+	if s.maxAgeDays > 0 {
+		cutoff := time.Now().Add(-time.Duration(s.maxAgeDays) * 24 * time.Hour)
+		for i := 1; ; i++ {
+			backup := fmt.Sprintf("%s.%d", s.path, i)
+			info, err := os.Stat(backup)
+			if err != nil {
+				break // no more backup files
+			}
+			if info.ModTime().Before(cutoff) {
+				_ = os.Remove(backup)
+			}
+		}
+	}
 }
 
 // Close flushes and closes the underlying file handle. The mutex is held to
@@ -430,6 +448,8 @@ type TCPSink struct {
 	level            finding.Severity // minimum severity threshold
 	retryInterval    time.Duration    // base interval between reconnection attempts (from config)
 	maxRetryInterval time.Duration    // upper bound for exponential backoff (from config)
+	currentRetry     time.Duration    // current backoff duration, doubles on each failed connect
+	lastAttempt      time.Time        // timestamp of the last connection attempt
 	conn             net.Conn         // current TCP connection, or nil if disconnected
 	buffer           [][]byte         // ring buffer for findings that could not be sent
 	mu               sync.Mutex       // serialises connect, write, and buffer operations
@@ -464,16 +484,34 @@ func NewTCPSink(cfg config.TCPOutputConfig) *TCPSink {
 func (s *TCPSink) Name() string { return "tcp" }
 
 // connect dials the remote TCP endpoint if there is no active connection. It
-// uses a 5-second timeout to avoid blocking Emit for too long. Must be called
-// with s.mu held.
+// enforces exponential backoff between reconnection attempts: if not enough
+// time has passed since the last failed attempt, it returns an error without
+// dialing. On failure the backoff doubles (up to maxRetryInterval); on success
+// it resets to retryInterval. Must be called with s.mu held.
 func (s *TCPSink) connect() error {
 	if s.conn != nil {
 		return nil // already connected
 	}
+	// Enforce backoff: skip dialing if we haven't waited long enough.
+	if s.currentRetry > 0 && time.Since(s.lastAttempt) < s.currentRetry {
+		return fmt.Errorf("backoff: next retry in %v", s.currentRetry-time.Since(s.lastAttempt))
+	}
+	s.lastAttempt = time.Now()
 	conn, err := net.DialTimeout("tcp", s.address, 5*time.Second)
 	if err != nil {
+		// Increase backoff on failure.
+		if s.currentRetry == 0 {
+			s.currentRetry = s.retryInterval
+		} else {
+			s.currentRetry *= 2
+			if s.currentRetry > s.maxRetryInterval {
+				s.currentRetry = s.maxRetryInterval
+			}
+		}
 		return err
 	}
+	// Success: reset backoff.
+	s.currentRetry = s.retryInterval
 	s.conn = conn
 	return nil
 }
@@ -629,7 +667,7 @@ type WebhookSink struct {
 	url      string               // destination webhook URL
 	level    finding.Severity     // minimum severity threshold
 	cooldown time.Duration        // minimum interval between POSTs for the same FindingID
-	template string               // reserved for future custom payload templates
+	template *template.Template   // optional custom payload template; nil means use default format
 	lastSent map[string]time.Time // tracks the last send time per FindingID for cooldown enforcement
 	mu       sync.Mutex           // serialises cooldown map access and HTTP calls
 }
@@ -638,11 +676,20 @@ type WebhookSink struct {
 // config. The lastSent map is initialised empty and populated as findings are
 // emitted.
 func NewWebhookSink(cfg config.WebhookOutputConfig) *WebhookSink {
+	var tmpl *template.Template
+	if cfg.Template != "" {
+		// Parse the user-supplied Go text/template. If parsing fails, the
+		// template is left nil and the sink falls back to the default format.
+		parsed, err := template.New("webhook").Parse(cfg.Template)
+		if err == nil {
+			tmpl = parsed
+		}
+	}
 	return &WebhookSink{
 		url:      cfg.URL,
 		level:    finding.ParseSeverity(cfg.Level),
 		cooldown: cfg.Cooldown,
-		template: cfg.Template,
+		template: tmpl,
 		lastSent: make(map[string]time.Time),
 	}
 }
@@ -683,13 +730,25 @@ func (s *WebhookSink) Emit(f *finding.Finding) error {
 		}
 	}
 
-	// Build a Markdown-formatted payload suitable for Slack/Teams/Discord.
-	payload, err := json.Marshal(map[string]interface{}{
-		"text": fmt.Sprintf("**Trapline Alert on %s**\nModule: %s | Severity: %s\n%s",
-			f.Hostname, f.Module, f.Severity, f.Summary),
-	})
-	if err != nil {
-		return fmt.Errorf("webhook marshal: %w", err)
+	// Build the POST body. If a custom template is configured, render it
+	// with the Finding as its data context; otherwise fall back to the
+	// default Markdown-formatted JSON payload for Slack/Teams/Discord.
+	var payload []byte
+	if s.template != nil {
+		var buf bytes.Buffer
+		if err := s.template.Execute(&buf, f); err != nil {
+			return fmt.Errorf("webhook template: %w", err)
+		}
+		payload = buf.Bytes()
+	} else {
+		var err error
+		payload, err = json.Marshal(map[string]interface{}{
+			"text": fmt.Sprintf("**Trapline Alert on %s**\nModule: %s | Severity: %s\n%s",
+				f.Hostname, f.Module, f.Severity, f.Summary),
+		})
+		if err != nil {
+			return fmt.Errorf("webhook marshal: %w", err)
+		}
 	}
 
 	// POST the payload with a conservative 10-second timeout.

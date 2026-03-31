@@ -375,6 +375,53 @@ func cmdRun(configPath string) error {
 		}
 		firstStart = false
 
+		// Start background auto-updater if enabled.
+		if cfg.Update.Enabled && cfg.Update.Repo != "" {
+			go func() {
+				interval := cfg.Update.CheckInterval
+				if interval < 10*time.Minute {
+					interval = 10 * time.Minute
+				}
+				timer := time.NewTimer(interval)
+				defer timer.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-timer.C:
+						u := updater.New(cfg.Update.Repo, version, install.BinaryPath, cfg.Update.Channel)
+						result, err := u.Check(ctx)
+						if err != nil {
+							fmt.Fprintf(os.Stderr, "Update check failed: %v\n", err)
+							timer.Reset(interval)
+							continue
+						}
+						if !result.Available {
+							timer.Reset(interval)
+							continue
+						}
+						fmt.Printf("Update available: %s -> %s\n", result.CurrentVersion, result.LatestVersion)
+						if !cfg.Update.AutoApply {
+							fmt.Println("Auto-apply is disabled. Run 'trapline update' to install.")
+							timer.Reset(interval)
+							continue
+						}
+						fmt.Println("Downloading update...")
+						if err := u.Apply(ctx, result); err != nil {
+							fmt.Fprintf(os.Stderr, "Auto-update failed: %v\n", err)
+							timer.Reset(interval)
+							continue
+						}
+						fmt.Printf("Update applied (%s). Restarting...\n", result.LatestVersion)
+						// Restart via systemd: exit cleanly and let systemd restart us
+						// with the new binary.
+						cancel()
+						return
+					}
+				}
+			}()
+		}
+
 		// Run engine in background so we can watch for signals.
 		done := make(chan struct{})
 		go func() {
@@ -1082,9 +1129,13 @@ func cmdFindings(configPath string, args []string) error {
 
 func cmdUpdate(configPath string, args []string) error {
 	checkOnly := false
+	allowMajor := false
 	for _, arg := range args {
 		if arg == "--check" {
 			checkOnly = true
+		}
+		if arg == "--allow-major" {
+			allowMajor = true
 		}
 	}
 
@@ -1093,7 +1144,7 @@ func cmdUpdate(configPath string, args []string) error {
 		cfg = config.Default()
 	}
 
-	u := updater.New(cfg.Update.Repo, version, install.BinaryPath)
+	u := updater.New(cfg.Update.Repo, version, install.BinaryPath, cfg.Update.Channel)
 	result, err := u.Check(context.Background())
 	if err != nil {
 		return fmt.Errorf("checking for updates: %w", err)
@@ -1109,6 +1160,14 @@ func cmdUpdate(configPath string, args []string) error {
 	}
 
 	fmt.Printf("Update available: %s -> %s\n", result.CurrentVersion, result.LatestVersion)
+
+	// Block major version upgrades unless --allow-major is passed.
+	currentMajor := strings.SplitN(strings.TrimPrefix(result.CurrentVersion, "v"), ".", 2)[0]
+	latestMajor := strings.SplitN(strings.TrimPrefix(result.LatestVersion, "v"), ".", 2)[0]
+	if currentMajor != latestMajor && !allowMajor {
+		fmt.Fprintf(os.Stderr, "WARNING: major version change (%s -> %s). Use --allow-major to apply this update.\n", currentMajor, latestMajor)
+		return nil
+	}
 
 	if checkOnly {
 		return nil

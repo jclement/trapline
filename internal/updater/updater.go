@@ -62,6 +62,9 @@ type Release struct {
 	// an update is available.
 	TagName string `json:"tag_name"`
 
+	// Prerelease indicates whether this is a pre-release (beta, rc, etc.).
+	Prerelease bool `json:"prerelease"`
+
 	// Assets is the list of downloadable files attached to this release.
 	Assets []Asset `json:"assets"`
 }
@@ -92,19 +95,28 @@ type Updater struct {
 	// (typically /usr/local/bin/trapline).
 	BinaryPath string
 
+	// Channel selects the release channel. "stable" (the default) filters
+	// out pre-releases; "beta" includes them.
+	Channel string
+
 	// client is the HTTP client used for all GitHub API and download requests.
 	// It has a 30-second timeout to prevent blocking on slow networks.
 	client *http.Client
 }
 
 // New creates a new Updater configured for the given GitHub repository,
-// current version, and binary path. The HTTP client is initialized with a
-// 30-second timeout.
-func New(repo, currentVersion, binaryPath string) *Updater {
+// current version, binary path, and release channel. The channel should be
+// "stable" (default, excludes pre-releases) or "beta" (includes pre-releases).
+// The HTTP client is initialized with a 30-second timeout.
+func New(repo, currentVersion, binaryPath, channel string) *Updater {
+	if channel == "" {
+		channel = "stable"
+	}
 	return &Updater{
 		Repo:           repo,
 		CurrentVersion: currentVersion,
 		BinaryPath:     binaryPath,
+		Channel:        channel,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -146,27 +158,9 @@ type CheckResult struct {
 // "trapline_linux_<GOARCH>" where GOARCH is the runtime architecture of the
 // currently running binary (e.g. "amd64", "arm64").
 func (u *Updater) Check(ctx context.Context) (*CheckResult, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", u.Repo)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	release, err := u.findLatestRelease(ctx)
 	if err != nil {
 		return nil, err
-	}
-	// Use the GitHub v3 JSON media type for stable API behavior.
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err := u.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("checking for updates: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
-	}
-
-	var release Release
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, fmt.Errorf("parsing release: %w", err)
 	}
 
 	// Strip the "v" prefix for comparison so that both "v0.4.2" and "0.4.2"
@@ -196,6 +190,86 @@ func (u *Updater) Check(ctx context.Context) (*CheckResult, error) {
 	}
 
 	return result, nil
+}
+
+// findLatestRelease returns the latest applicable release based on the
+// configured channel. For "stable", it uses the /releases/latest endpoint
+// which automatically excludes pre-releases. For other channels (e.g. "beta"),
+// it lists all releases and returns the first one (most recent) that may
+// include pre-releases.
+func (u *Updater) findLatestRelease(ctx context.Context) (*Release, error) {
+	if u.Channel == "" || u.Channel == "stable" {
+		return u.fetchLatestStableRelease(ctx)
+	}
+	return u.fetchLatestChannelRelease(ctx)
+}
+
+// fetchLatestStableRelease queries the /releases/latest endpoint, which
+// returns only non-prerelease releases.
+func (u *Updater) fetchLatestStableRelease(ctx context.Context) (*Release, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", u.Repo)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("checking for updates: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+
+	var release Release
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return nil, fmt.Errorf("parsing release: %w", err)
+	}
+	return &release, nil
+}
+
+// fetchLatestChannelRelease lists all releases and returns the first
+// (most recent) one. For "beta" channel, pre-releases are included.
+// For "stable" channel, pre-releases are skipped.
+func (u *Updater) fetchLatestChannelRelease(ctx context.Context) (*Release, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases", u.Repo)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("checking for updates: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+
+	var releases []Release
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return nil, fmt.Errorf("parsing releases: %w", err)
+	}
+
+	for i := range releases {
+		r := &releases[i]
+		if u.Channel == "beta" {
+			// Beta channel: accept any release (including pre-releases).
+			return r, nil
+		}
+		// Other non-stable channels: skip pre-releases.
+		if !r.Prerelease {
+			return r, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no suitable release found for channel %q", u.Channel)
 }
 
 // Apply downloads and installs the update described by the given CheckResult.

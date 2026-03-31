@@ -391,6 +391,10 @@ func (e *Engine) scanAndEmit(ctx context.Context, m Module) {
 		if f.Timestamp.IsZero() {
 			f.Timestamp = time.Now().UTC()
 		}
+		// Apply the default severity if the module didn't set one.
+		if f.Severity == "" {
+			f.Severity = finding.Severity(e.cfg.Defaults.Severity)
+		}
 		// Tag with the originating module name for filtering and routing.
 		f.Module = m.Name()
 		// Embed the Trapline version for debugging and compatibility tracking.
