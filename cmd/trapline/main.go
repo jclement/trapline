@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -47,6 +48,14 @@ var (
 	// main() treats this as exit code 1 without printing an error message.
 	errFindingsPresent = errors.New("findings present")
 )
+
+func init() {
+	// modernc.org/sqlite (pure-Go SQLite) uses deep recursion from its
+	// C-to-Go translation, especially on ARM64. The default goroutine stack
+	// (8KB, growing to 1MB max) can overflow during complex queries. Bump
+	// the max stack size to 8MB to prevent runtime.morestack crashes.
+	debug.SetMaxStack(8 * 1024 * 1024)
+}
 
 func main() {
 	if len(os.Args) < 2 {

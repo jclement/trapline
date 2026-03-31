@@ -198,10 +198,17 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 		}
 	}
 
-	// Default exclude list: kworker threads are ephemeral kernel workers
-	// that constantly spawn and die, producing endless false positives.
+	// Default exclude list: filters out processes that churn constantly and
+	// produce false positives for "unexpected" / "missing" findings.
 	if len(m.exclude) == 0 {
-		m.exclude = []string{"kworker/*"}
+		m.exclude = []string{
+			"kworker/*",    // kernel worker threads — ephemeral, constantly respawning
+			"sh",           // shell scripts — short-lived, appear/disappear between scans
+			"dash",         // Debian default sh — same as above
+			"bash",         // interactive/script shells
+			"trapline",     // ourselves — path changes on self-update (.bak)
+			"trapline.bak", // old binary after self-update
+		}
 	}
 
 	return nil
