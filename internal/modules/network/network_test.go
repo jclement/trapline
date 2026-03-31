@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jclement/tripline/internal/engine"
+	"github.com/jclement/trapline/internal/engine"
 )
 
 func testModuleConfig(t *testing.T) engine.ModuleConfig {
@@ -388,6 +388,9 @@ func TestBuildInodeMap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pid1Dir, "comm"), []byte("curl\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Symlink("/usr/bin/curl", filepath.Join(pid1Dir, "exe")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink("socket:[12345]", filepath.Join(fdDir1, "3")); err != nil {
 		t.Fatal(err)
 	}
@@ -404,6 +407,9 @@ func TestBuildInodeMap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pid2Dir, "comm"), []byte("sshd\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Symlink("/usr/sbin/sshd", filepath.Join(pid2Dir, "exe")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink("socket:[99999]", filepath.Join(fdDir2, "5")); err != nil {
 		t.Fatal(err)
 	}
@@ -415,6 +421,9 @@ func TestBuildInodeMap(t *testing.T) {
 	} else {
 		if proc.Name != "curl" {
 			t.Errorf("expected name 'curl', got %q", proc.Name)
+		}
+		if proc.ExePath != "/usr/bin/curl" {
+			t.Errorf("expected exe path '/usr/bin/curl', got %q", proc.ExePath)
 		}
 		if proc.PID != 1234 {
 			t.Errorf("expected PID 1234, got %d", proc.PID)
@@ -446,6 +455,9 @@ func TestAllowedProcessFiltering(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(pid100Dir, "comm"), []byte("apt\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/usr/bin/apt", filepath.Join(pid100Dir, "exe")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink("socket:[23456]", filepath.Join(fdDir, "3")); err != nil {
@@ -490,6 +502,9 @@ func TestProcessInfoInFindings(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pid200Dir, "comm"), []byte("curl\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Symlink("/usr/bin/curl", filepath.Join(pid200Dir, "exe")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink("socket:[23456]", filepath.Join(fdDir, "5")); err != nil {
 		t.Fatal(err)
 	}
@@ -517,11 +532,14 @@ func TestProcessInfoInFindings(t *testing.T) {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
 	f := findings[0]
-	if !strings.Contains(f.Summary, "curl") {
-		t.Errorf("expected summary to contain 'curl', got %q", f.Summary)
+	if !strings.Contains(f.Summary, "/usr/bin/curl") {
+		t.Errorf("expected summary to contain '/usr/bin/curl', got %q", f.Summary)
 	}
 	if f.Detail["process_name"] != "curl" {
 		t.Errorf("expected detail process_name='curl', got %v", f.Detail["process_name"])
+	}
+	if f.Detail["process_path"] != "/usr/bin/curl" {
+		t.Errorf("expected detail process_path='/usr/bin/curl', got %v", f.Detail["process_path"])
 	}
 	if f.Detail["process_pid"] != 200 {
 		t.Errorf("expected detail process_pid=200, got %v", f.Detail["process_pid"])

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jclement/tripline/internal/engine"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/engine"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 func testModuleConfig(t *testing.T) engine.ModuleConfig {
@@ -24,6 +24,11 @@ func testModuleConfig(t *testing.T) engine.ModuleConfig {
 
 func createFakeProc(t *testing.T, dir string, pid int, name string) {
 	t.Helper()
+	createFakeProcWithPath(t, dir, pid, name, "/usr/bin/"+name)
+}
+
+func createFakeProcWithPath(t *testing.T, dir string, pid int, name, exePath string) {
+	t.Helper()
 	pidDir := filepath.Join(dir, fmt.Sprintf("%d", pid))
 	if err := os.MkdirAll(pidDir, 0755); err != nil {
 		t.Fatal(err)
@@ -31,11 +36,16 @@ func createFakeProc(t *testing.T, dir string, pid int, name string) {
 	if err := os.WriteFile(filepath.Join(pidDir, "comm"), []byte(name+"\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pidDir, "cmdline"), []byte("/usr/bin/"+name+"\x00"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pidDir, "cmdline"), []byte(exePath+"\x00"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(pidDir, "status"), []byte("Name:\t"+name+"\nUid:\t0\t0\t0\t0\n"), 0644); err != nil {
 		t.Fatal(err)
+	}
+	// Create exe symlink pointing to the binary path. On real /proc this is
+	// a magic kernel symlink; in tests we create a regular symlink.
+	if exePath != "" {
+		_ = os.Symlink(exePath, filepath.Join(pidDir, "exe"))
 	}
 }
 
@@ -84,10 +94,10 @@ func TestDetectsUnexpectedProcess(t *testing.T) {
 	foundDenied := false
 	foundUnexpected := false
 	for _, f := range findings {
-		if f.FindingID == "process-denied:cryptominer:666" {
+		if strings.Contains(f.FindingID, "process-denied") && strings.Contains(f.FindingID, "cryptominer") {
 			foundDenied = true
 		}
-		if f.FindingID == "process-unexpected:cryptominer" {
+		if strings.Contains(f.FindingID, "process-unexpected") {
 			foundUnexpected = true
 		}
 	}
@@ -118,7 +128,7 @@ func TestDetectsMissingProcess(t *testing.T) {
 	findings, _ := m.Scan(context.Background())
 	found := false
 	for _, f := range findings {
-		if f.FindingID == "process-missing:sshd" {
+		if strings.Contains(f.FindingID, "process-missing") && strings.Contains(f.Summary, "sshd") {
 			found = true
 		}
 	}
@@ -195,7 +205,7 @@ func TestExcludeMissingProcess(t *testing.T) {
 
 	findings, _ := m.Scan(context.Background())
 	for _, f := range findings {
-		if f.FindingID == "process-missing:sshd" {
+		if strings.Contains(f.FindingID, "process-missing") && strings.Contains(f.Summary, "sshd") {
 			t.Error("excluded process should not generate missing finding")
 		}
 	}

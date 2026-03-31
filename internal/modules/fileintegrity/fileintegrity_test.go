@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jclement/tripline/internal/engine"
+	"github.com/jclement/trapline/internal/engine"
 )
 
 func testModuleConfig(t *testing.T) engine.ModuleConfig {

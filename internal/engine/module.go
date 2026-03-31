@@ -3,7 +3,7 @@ package engine
 import (
 	"context"
 
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // Module is the interface that all Trapline scanner modules must implement.

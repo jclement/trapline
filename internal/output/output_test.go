@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jclement/tripline/internal/config"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/config"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 func testFinding(sev finding.Severity) *finding.Finding {

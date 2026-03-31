@@ -137,7 +137,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // Server is the trapline dashboard server. It holds the database handle, authentication

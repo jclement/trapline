@@ -62,9 +62,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jclement/tripline/internal/config"
-	"github.com/jclement/tripline/internal/tui"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/config"
+	"github.com/jclement/trapline/internal/tui"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // Sink is the interface that all output destinations must implement.
@@ -426,6 +426,7 @@ const tcpBufferMax = 1000
 // a background reconnect loop but are not currently used in the Emit path.
 type TCPSink struct {
 	address          string           // host:port of the remote TCP endpoint
+	format           string           // "json" (NDJSON) or "syslog" (RFC 5424 with JSON payload)
 	level            finding.Severity // minimum severity threshold
 	retryInterval    time.Duration    // base interval between reconnection attempts (from config)
 	maxRetryInterval time.Duration    // upper bound for exponential backoff (from config)
@@ -446,8 +447,13 @@ func NewTCPSink(cfg config.TCPOutputConfig) *TCPSink {
 	if maxRetry == 0 {
 		maxRetry = 60 * time.Second // default maximum retry interval
 	}
+	format := cfg.Format
+	if format == "" {
+		format = "json"
+	}
 	return &TCPSink{
 		address:          cfg.Address,
+		format:           format,
 		level:            finding.ParseSeverity(cfg.Level),
 		retryInterval:    retry,
 		maxRetryInterval: maxRetry,
@@ -486,12 +492,11 @@ func (s *TCPSink) Emit(f *finding.Finding) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Serialise the finding as a single JSON line.
-	data, err := f.JSON()
+	// Serialise the finding based on the configured format.
+	data, err := s.formatFinding(f)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
 
 	// Attempt to establish or reuse the TCP connection.
 	if err := s.connect(); err != nil {
@@ -544,6 +549,58 @@ func (s *TCPSink) flushBuffer() {
 		}
 	}
 	s.buffer = remaining
+}
+
+// severityToSyslog maps Trapline severity levels to syslog severity numbers
+// (RFC 5424 Section 6.2.1). Facility 1 (user-level) is used.
+func severityToSyslog(sev finding.Severity) int {
+	// PRI = facility * 8 + severity. Facility 1 = user-level messages.
+	facility := 1
+	var severity int
+	switch sev {
+	case finding.SeverityCritical:
+		severity = 2 // critical
+	case finding.SeverityHigh:
+		severity = 3 // error
+	case finding.SeverityMedium:
+		severity = 4 // warning
+	case finding.SeverityInfo:
+		severity = 6 // informational
+	default:
+		severity = 5 // notice
+	}
+	return facility*8 + severity
+}
+
+// formatFinding serialises a finding according to the sink's configured format.
+// Supported formats:
+//   - "json": compact JSON followed by newline (NDJSON, the standard for
+//     Fluent Bit tcp input with Format json)
+//   - "syslog": RFC 5424 syslog message with the JSON finding as the MSG
+//     payload, suitable for Fluent Bit syslog input or any RFC 5424 receiver
+func (s *TCPSink) formatFinding(f *finding.Finding) ([]byte, error) {
+	jsonData, err := f.JSON()
+	if err != nil {
+		return nil, err
+	}
+
+	switch s.format {
+	case "syslog":
+		// RFC 5424: <PRI>VERSION SP TIMESTAMP SP HOSTNAME SP APP-NAME SP PROCID SP MSGID SP SD SP MSG
+		pri := severityToSyslog(f.Severity)
+		hostname := f.Hostname
+		if hostname == "" {
+			hostname = "-"
+		}
+		ts := f.Timestamp.UTC().Format(time.RFC3339)
+		// Build the syslog line with the JSON finding as the message body.
+		line := fmt.Sprintf("<%d>1 %s %s trapline - %s - %s\n",
+			pri, ts, hostname, f.Module, jsonData)
+		return []byte(line), nil
+	default:
+		// NDJSON: one JSON object per line
+		return append(jsonData, '\n'), nil
+	}
 }
 
 // Close shuts down the TCP connection if one is active. Any data still in the

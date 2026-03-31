@@ -85,17 +85,50 @@
 package permissions
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/jclement/tripline/internal/baseline"
-	"github.com/jclement/tripline/internal/engine"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/baseline"
+	"github.com/jclement/trapline/internal/engine"
+	"github.com/jclement/trapline/pkg/finding"
 )
+
+// isShadowGroup returns true if the given GID belongs to the "shadow" group.
+// On Debian/Ubuntu the shadow group (typically GID 42) is the expected group
+// owner of /etc/shadow, granting read access to programs like passwd without
+// requiring root. We look up the group by parsing /etc/group directly to avoid
+// CGO dependency (os/user.LookupGroup requires CGO on Linux).
+func isShadowGroup(gid uint32) bool {
+	f, err := os.Open("/etc/group")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		// /etc/group format: name:password:GID:members
+		fields := strings.SplitN(scanner.Text(), ":", 4)
+		if len(fields) < 3 {
+			continue
+		}
+		if fields[0] == "shadow" {
+			groupGID, err := strconv.ParseUint(fields[2], 10, 32)
+			if err != nil {
+				return false
+			}
+			return uint32(groupGID) == gid
+		}
+	}
+	return false
+}
 
 // dirCache tracks directory modification times to enable incremental scanning.
 // By recording each directory's mtime, we can skip entire subtrees that have
@@ -109,9 +142,10 @@ type dirCache struct {
 
 // Module implements engine.Scanner for filesystem permission monitoring.
 type Module struct {
-	store     *baseline.Store
-	scanPaths []string // Root directories to walk for permission checks
-	cache     dirCache // Persisted mtime cache for incremental scanning
+	store      *baseline.Store
+	scanPaths  []string // Root directories to walk for permission checks
+	cache      dirCache // Persisted mtime cache for incremental scanning
+	ShadowPath string   // Path to /etc/shadow, overridable for testing
 }
 
 // New creates a permissions scanner targeting the three most security-sensitive
@@ -120,7 +154,8 @@ type Module struct {
 // and logs.
 func New() *Module {
 	return &Module{
-		scanPaths: []string{"/etc", "/usr", "/var"},
+		scanPaths:  []string{"/etc", "/usr", "/var"},
+		ShadowPath: "/etc/shadow",
 	}
 }
 
@@ -212,20 +247,57 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	// --- Targeted checks (run every scan, negligible cost) ---
 
 	// Check /etc/shadow permissions. This file contains password hashes and
-	// should be mode 0640 (root:shadow) or 0600 (root:root). The bitmask 0044
-	// checks for group-read (0040) OR other-read (0004) — either means non-root
-	// users can read password hashes for offline cracking.
-	if info, err := os.Stat("/etc/shadow"); err == nil {
-		mode := info.Mode()
-		if mode&0044 != 0 {
+	// should be mode 0640 (root:shadow) or stricter. The correct permission is
+	// 0640 where the "shadow" group provides read access to programs like passwd
+	// that need to verify passwords without running as root.
+	//
+	// We flag two cases:
+	//   - World-readable (other-read 0004): anyone can read password hashes.
+	//     This is CRITICAL — immediate credential exposure.
+	//   - Group-readable with wrong group (not "shadow"): a non-shadow group
+	//     can read password hashes. This is CRITICAL.
+	//   - Group-writable or world-writable: password hashes can be modified.
+	//     This is CRITICAL.
+	//   - Mode 0640 with group "shadow": this is correct, no finding.
+	if info, err := os.Stat(m.ShadowPath); err == nil {
+		mode := info.Mode().Perm()
+		stat, ok := info.Sys().(*syscall.Stat_t)
+
+		if mode&0002 != 0 {
+			// World-writable — anyone can modify password hashes
+			findings = append(findings, finding.Finding{
+				Timestamp: time.Now().UTC(),
+				FindingID: "perm-shadow-writable",
+				Severity:  finding.SeverityCritical,
+				Status:    finding.StatusNew,
+				Summary:   "/etc/shadow is world-writable",
+				Detail: map[string]interface{}{
+					"mode": fmt.Sprintf("%04o", mode),
+				},
+			})
+		} else if mode&0004 != 0 {
+			// World-readable — any user can read password hashes
 			findings = append(findings, finding.Finding{
 				Timestamp: time.Now().UTC(),
 				FindingID: "perm-shadow-readable",
 				Severity:  finding.SeverityCritical,
 				Status:    finding.StatusNew,
-				Summary:   "/etc/shadow is readable by non-root",
+				Summary:   "/etc/shadow is world-readable",
 				Detail: map[string]interface{}{
-					"mode": fmt.Sprintf("%04o", mode.Perm()),
+					"mode": fmt.Sprintf("%04o", mode),
+				},
+			})
+		} else if mode&0040 != 0 && ok && !isShadowGroup(stat.Gid) {
+			// Group-readable but owned by wrong group (not "shadow")
+			findings = append(findings, finding.Finding{
+				Timestamp: time.Now().UTC(),
+				FindingID: "perm-shadow-readable",
+				Severity:  finding.SeverityCritical,
+				Status:    finding.StatusNew,
+				Summary:   fmt.Sprintf("/etc/shadow is group-readable by GID %d (expected shadow group)", stat.Gid),
+				Detail: map[string]interface{}{
+					"mode": fmt.Sprintf("%04o", mode),
+					"gid":  stat.Gid,
 				},
 			})
 		}

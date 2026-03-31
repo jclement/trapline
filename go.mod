@@ -1,4 +1,4 @@
-module github.com/jclement/tripline
+module github.com/jclement/trapline
 
 go 1.25.0
 

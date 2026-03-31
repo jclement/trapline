@@ -90,9 +90,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jclement/tripline/internal/baseline"
-	"github.com/jclement/tripline/internal/engine"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/baseline"
+	"github.com/jclement/trapline/internal/engine"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // knownHiddenFiles is an allowlist of dotfiles that are expected in /tmp and
@@ -425,10 +425,13 @@ func (m *Module) checkPromiscuous() []finding.Finding {
 //   - Attackers cleaning up after deploying implants
 //   - Memfd-based execution where the binary was staged temporarily
 //
-// SeverityCritical because a running process with no on-disk binary is
-// extremely suspicious and indicates active compromise in most cases.
-// Note: legitimate false positives can occur during package upgrades when
-// dpkg/rpm replaces a binary while its old version is still running.
+// To reduce false positives from package upgrades (apt/dpkg replacing binaries
+// while old versions are still running), the check distinguishes between:
+//   - A replacement binary exists at the original path → the package manager
+//     installed a new version and the old process just needs a restart. This is
+//     downgraded to INFO severity.
+//   - No replacement exists → the binary was truly deleted, which is suspicious.
+//     This remains CRITICAL severity.
 func (m *Module) checkDeletedExe() []finding.Finding {
 	var findings []finding.Finding
 	entries, err := os.ReadDir(m.ProcDir)
@@ -439,33 +442,57 @@ func (m *Module) checkDeletedExe() []finding.Finding {
 		if !entry.IsDir() {
 			continue
 		}
-		// Filter to numeric PID directories; skip /proc/sys, /proc/net, etc.
-		if _, err := strconv.Atoi(entry.Name()); err != nil {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
 			continue
 		}
-		// /proc/PID/exe is a symlink to the process's executable. If the
-		// file has been deleted, the kernel appends " (deleted)" to the
-		// symlink target.
 		exePath := filepath.Join(m.ProcDir, entry.Name(), "exe")
 		target, err := os.Readlink(exePath)
 		if err != nil {
-			// Permission denied for other users' processes, or the process
-			// may have exited between readdir and readlink — both are benign.
 			continue
 		}
-		if strings.HasSuffix(target, " (deleted)") {
-			findings = append(findings, finding.Finding{
-				Timestamp: time.Now().UTC(),
-				FindingID: "deleted-exe:" + entry.Name(),
-				Severity:  finding.SeverityCritical,
-				Status:    finding.StatusNew,
-				Summary:   fmt.Sprintf("process %s running with deleted binary", entry.Name()),
-				Detail: map[string]interface{}{
-					"pid": entry.Name(),
-					"exe": target,
-				},
-			})
+		if !strings.HasSuffix(target, " (deleted)") {
+			continue
 		}
+
+		// Extract the original binary path by stripping the " (deleted)" suffix.
+		originalPath := strings.TrimSuffix(target, " (deleted)")
+
+		// Read comm for the process name (informational).
+		comm, _ := os.ReadFile(filepath.Join(m.ProcDir, entry.Name(), "comm"))
+		procName := strings.TrimSpace(string(comm))
+
+		// Check if a replacement binary exists at the original path. This is the
+		// normal case after apt upgrade: dpkg replaces the binary on disk, but
+		// the old process keeps running with the previous version in memory.
+		// A simple restart (or reboot) resolves this — it's not a security issue.
+		severity := finding.SeverityCritical
+		summary := fmt.Sprintf("process %d (%s) running with deleted binary: %s", pid, procName, originalPath)
+		replaced := false
+
+		if originalPath != "" {
+			if _, err := os.Stat(originalPath); err == nil {
+				// A replacement file exists at the same path — this is almost
+				// certainly a package upgrade. Downgrade to info.
+				severity = finding.SeverityInfo
+				summary = fmt.Sprintf("process %d (%s) running outdated binary (needs restart): %s", pid, procName, originalPath)
+				replaced = true
+			}
+		}
+
+		findings = append(findings, finding.Finding{
+			Timestamp: time.Now().UTC(),
+			FindingID: "deleted-exe:" + entry.Name(),
+			Severity:  severity,
+			Status:    finding.StatusNew,
+			Summary:   summary,
+			Detail: map[string]interface{}{
+				"pid":      pid,
+				"name":     procName,
+				"exe":      target,
+				"replaced": replaced,
+			},
+		})
 	}
 	return findings
 }

@@ -21,13 +21,13 @@ The name: a trapline is a route a trapper walks regularly, checking each trap al
 One command:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/jclement/tripline/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/jclement/trapline/main/install.sh | sudo bash
 ```
 
 Or manually — download the binary and run the installer yourself:
 
 ```bash
-curl -sL https://github.com/jclement/tripline/releases/latest/download/trapline_linux_amd64 -o trapline && chmod +x trapline
+curl -sL https://github.com/jclement/trapline/releases/latest/download/trapline_linux_amd64 -o trapline && chmod +x trapline
 sudo ./trapline install
 ```
 
@@ -149,7 +149,7 @@ output:
 
 update:
   enabled: true
-  repo: jclement/tripline
+  repo: jclement/trapline
   channel: stable
   check_interval: 6h
   auto_apply: true
@@ -461,7 +461,7 @@ checksums.txt.pem           (Fulcio certificate)
 # Deploy trapline
 - name: Download trapline
   get_url:
-    url: "https://github.com/jclement/tripline/releases/latest/download/trapline_linux_amd64"
+    url: "https://github.com/jclement/trapline/releases/latest/download/trapline_linux_amd64"
     dest: /usr/local/bin/trapline
     mode: "0755"
 

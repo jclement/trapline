@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jclement/tripline/internal/engine"
+	"github.com/jclement/trapline/internal/engine"
 )
 
 func initModule(t *testing.T) (*Module, string) {
@@ -220,6 +220,7 @@ func TestDetectsDeletedExe(t *testing.T) {
 	if err := os.Symlink("/usr/bin/something (deleted)", filepath.Join(pidDir, "exe")); err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, filepath.Join(pidDir, "comm"), "something\n")
 
 	writeFile(t, filepath.Join(m.ProcDir, "modules"), "")
 
@@ -233,12 +234,53 @@ func TestDetectsDeletedExe(t *testing.T) {
 		if f.FindingID == "deleted-exe:1234" {
 			found = true
 			if f.Severity != "critical" {
-				t.Errorf("expected severity critical, got %s", f.Severity)
+				t.Errorf("expected severity critical for truly deleted binary, got %s", f.Severity)
 			}
 		}
 	}
 	if !found {
 		t.Fatal("expected finding for deleted exe process")
+	}
+}
+
+func TestDeletedExeDowngradedWhenReplaced(t *testing.T) {
+	m, tmp := initModule(t)
+
+	// Create a replacement binary at the original path (simulates apt upgrade).
+	replacedBin := filepath.Join(tmp, "usr", "bin", "sshd")
+	writeFile(t, replacedBin, "new binary")
+
+	pidDir := filepath.Join(m.ProcDir, "5678")
+	if err := os.MkdirAll(pidDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Symlink target includes " (deleted)" suffix — old binary was replaced.
+	if err := os.Symlink(replacedBin+" (deleted)", filepath.Join(pidDir, "exe")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(pidDir, "comm"), "sshd\n")
+
+	writeFile(t, filepath.Join(m.ProcDir, "modules"), "")
+
+	findings, err := m.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+
+	found := false
+	for _, f := range findings {
+		if f.FindingID == "deleted-exe:5678" {
+			found = true
+			if f.Severity != "info" {
+				t.Errorf("expected severity info for replaced binary (apt upgrade), got %s", f.Severity)
+			}
+			if f.Detail["replaced"] != true {
+				t.Errorf("expected replaced=true in detail")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected finding for deleted-exe (replaced)")
 	}
 }
 

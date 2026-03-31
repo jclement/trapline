@@ -1,10 +1,10 @@
 #!/bin/sh
-# Trapline installer — curl -sSL https://raw.githubusercontent.com/jclement/tripline/main/install.sh | sudo bash
+# Trapline installer — curl -sSL https://raw.githubusercontent.com/jclement/trapline/main/install.sh | sudo bash
 #
 # Downloads the latest trapline binary for this architecture and runs `trapline install`.
 set -eu
 
-REPO="jclement/tripline"
+REPO="jclement/trapline"
 BASE_URL="https://github.com/${REPO}/releases/latest/download"
 
 # --- helpers ----------------------------------------------------------------

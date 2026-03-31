@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 func testServer(t *testing.T) *Server {

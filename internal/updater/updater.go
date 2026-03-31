@@ -81,7 +81,7 @@ type Asset struct {
 // and the path to the binary on disk. The Check method queries GitHub; the
 // Apply method downloads, verifies, and installs the update.
 type Updater struct {
-	// Repo is the GitHub "owner/repo" slug (e.g. "jclement/tripline").
+	// Repo is the GitHub "owner/repo" slug (e.g. "jclement/trapline").
 	Repo string
 
 	// CurrentVersion is the version string of the currently running binary

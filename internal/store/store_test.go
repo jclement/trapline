@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 func testStore(t *testing.T) *Store {

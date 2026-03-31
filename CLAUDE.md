@@ -1,6 +1,6 @@
 # Trapline
 
-Host integrity monitoring daemon for Linux. Go project at `github.com/jclement/tripline`.
+Host integrity monitoring daemon for Linux. Go project at `github.com/jclement/trapline`.
 
 ## Build & Test
 

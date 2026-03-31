@@ -89,7 +89,7 @@ import (
 	// It registers itself under the driver name "sqlite".
 	_ "modernc.org/sqlite"
 
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // Store manages findings and ignores in SQLite.

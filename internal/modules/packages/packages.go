@@ -95,9 +95,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jclement/tripline/internal/baseline"
-	"github.com/jclement/tripline/internal/engine"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/baseline"
+	"github.com/jclement/trapline/internal/engine"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // Module implements engine.Scanner for dpkg package integrity verification.

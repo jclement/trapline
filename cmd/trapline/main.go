@@ -12,29 +12,30 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jclement/tripline/internal/config"
-	"github.com/jclement/tripline/internal/engine"
-	"github.com/jclement/tripline/internal/install"
-	"github.com/jclement/tripline/internal/modules/containers"
-	"github.com/jclement/tripline/internal/modules/cron"
-	"github.com/jclement/tripline/internal/modules/fileintegrity"
-	"github.com/jclement/tripline/internal/modules/malware"
-	"github.com/jclement/tripline/internal/modules/network"
-	"github.com/jclement/tripline/internal/modules/packages"
-	"github.com/jclement/tripline/internal/modules/permissions"
-	"github.com/jclement/tripline/internal/modules/ports"
-	"github.com/jclement/tripline/internal/modules/processes"
-	"github.com/jclement/tripline/internal/modules/rootkit"
-	"github.com/jclement/tripline/internal/modules/ssh"
-	"github.com/jclement/tripline/internal/modules/suid"
-	"github.com/jclement/tripline/internal/modules/users"
-	"github.com/jclement/tripline/internal/output"
-	"github.com/jclement/tripline/internal/server"
-	"github.com/jclement/tripline/internal/store"
-	"github.com/jclement/tripline/internal/taglines"
-	"github.com/jclement/tripline/internal/tui"
-	"github.com/jclement/tripline/internal/updater"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/fsnotify/fsnotify"
+	"github.com/jclement/trapline/internal/config"
+	"github.com/jclement/trapline/internal/engine"
+	"github.com/jclement/trapline/internal/install"
+	"github.com/jclement/trapline/internal/modules/containers"
+	"github.com/jclement/trapline/internal/modules/cron"
+	"github.com/jclement/trapline/internal/modules/fileintegrity"
+	"github.com/jclement/trapline/internal/modules/malware"
+	"github.com/jclement/trapline/internal/modules/network"
+	"github.com/jclement/trapline/internal/modules/packages"
+	"github.com/jclement/trapline/internal/modules/permissions"
+	"github.com/jclement/trapline/internal/modules/ports"
+	"github.com/jclement/trapline/internal/modules/processes"
+	"github.com/jclement/trapline/internal/modules/rootkit"
+	"github.com/jclement/trapline/internal/modules/ssh"
+	"github.com/jclement/trapline/internal/modules/suid"
+	"github.com/jclement/trapline/internal/modules/users"
+	"github.com/jclement/trapline/internal/output"
+	"github.com/jclement/trapline/internal/server"
+	"github.com/jclement/trapline/internal/store"
+	"github.com/jclement/trapline/internal/taglines"
+	"github.com/jclement/trapline/internal/tui"
+	"github.com/jclement/trapline/internal/updater"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 var (
@@ -235,14 +236,9 @@ func buildEngine(cfg *config.Config, handler engine.FindingHandler) *engine.Engi
 // --- Commands ---
 
 func cmdRun(configPath string) error {
-	cfg, err := loadConfig(configPath)
+	db, err := openStore2(configPath)
 	if err != nil {
 		return err
-	}
-
-	db, err := openStore(cfg)
-	if err != nil {
-		return fmt.Errorf("opening store: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -251,57 +247,180 @@ func cmdRun(configPath string) error {
 		fmt.Printf("Pruned %d stale ignore(s)\n", pruned)
 	}
 
-	mgr, err := output.NewManager(cfg.Output)
-	if err != nil {
-		return fmt.Errorf("setting up outputs: %w", err)
-	}
-	defer func() { _ = mgr.Close() }()
-
-	// Add dashboard sink if configured
-	mgr.AddDashboardSink(cfg.Dashboard.URL, cfg.Dashboard.Secret)
-
-	handler := func(f *finding.Finding) {
-		hash, ignored, _ := db.RecordFinding(f)
-		if ignored {
-			return
-		}
-		f.ScanID = hash // stash the hash in ScanID for display
-		mgr.Emit(f)
-	}
-
-	eng := buildEngine(cfg, handler)
-	if err := eng.Init(); err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Channel signals a config reload (SIGHUP or fsnotify).
+	reloadCh := make(chan struct{}, 1)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 
-	go func() {
-		for sig := range sigCh {
-			switch sig {
-			case syscall.SIGTERM, syscall.SIGINT:
-				fmt.Println("Shutting down...")
-				cancel()
-				return
-			case syscall.SIGHUP:
-				fmt.Println("Reloading configuration...")
-			}
-		}
-	}()
-
-	if tui.IsTTY() {
-		fmt.Println(tui.FormatBanner(version, taglines.Random()))
-		fmt.Printf("Starting daemon with %d modules enabled\n\n", len(eng.EnabledModules()))
+	// Watch config file for changes.
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not watch config file: %v\n", err)
 	} else {
-		fmt.Printf("Trapline %s starting (%d modules enabled)\n", version, len(eng.EnabledModules()))
+		defer watcher.Close()
+		if err := watcher.Add(configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not watch %s: %v\n", configPath, err)
+		}
+		go func() {
+			for {
+				select {
+				case ev, ok := <-watcher.Events:
+					if !ok {
+						return
+					}
+					if ev.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+						select {
+						case reloadCh <- struct{}{}:
+						default:
+						}
+					}
+				case _, ok := <-watcher.Errors:
+					if !ok {
+						return
+					}
+				}
+			}
+		}()
 	}
 
-	eng.Run(ctx)
-	return nil
+	firstStart := true
+	for {
+		cfg, err := loadConfig(configPath)
+		if err != nil {
+			if firstStart {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "Config reload failed (keeping current config): %v\n", err)
+			// Wait for next reload signal or shutdown.
+			select {
+			case <-reloadCh:
+				continue
+			case sig := <-sigCh:
+				if sig == syscall.SIGHUP {
+					continue
+				}
+				fmt.Println("Shutting down...")
+				return nil
+			}
+		}
+
+		mgr, err := output.NewManager(cfg.Output)
+		if err != nil {
+			if firstStart {
+				return fmt.Errorf("setting up outputs: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "Config reload failed (keeping current config): %v\n", err)
+			select {
+			case <-reloadCh:
+				continue
+			case sig := <-sigCh:
+				if sig == syscall.SIGHUP {
+					continue
+				}
+				fmt.Println("Shutting down...")
+				return nil
+			}
+		}
+		mgr.AddDashboardSink(cfg.Dashboard.URL, cfg.Dashboard.Secret)
+
+		handler := func(f *finding.Finding) {
+			hash, ignored, _ := db.RecordFinding(f)
+			if ignored {
+				return
+			}
+			f.ScanID = hash
+			mgr.Emit(f)
+		}
+
+		eng := buildEngine(cfg, handler)
+		if err := eng.Init(); err != nil {
+			_ = mgr.Close()
+			if firstStart {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "Config reload failed (keeping current config): %v\n", err)
+			select {
+			case <-reloadCh:
+				continue
+			case sig := <-sigCh:
+				if sig == syscall.SIGHUP {
+					continue
+				}
+				fmt.Println("Shutting down...")
+				return nil
+			}
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		if firstStart {
+			if tui.IsTTY() {
+				fmt.Println(tui.FormatBanner(version, taglines.Random()))
+				fmt.Printf("Starting daemon with %d modules enabled\n\n", len(eng.EnabledModules()))
+			} else {
+				fmt.Printf("Trapline %s starting (%d modules enabled)\n", version, len(eng.EnabledModules()))
+			}
+		} else {
+			fmt.Printf("Configuration reloaded (%d modules enabled)\n", len(eng.EnabledModules()))
+		}
+		firstStart = false
+
+		// Run engine in background so we can watch for signals.
+		done := make(chan struct{})
+		go func() {
+			eng.Run(ctx)
+			close(done)
+		}()
+
+		// Wait for shutdown, SIGHUP, or config file change.
+		reload := false
+		select {
+		case sig := <-sigCh:
+			if sig == syscall.SIGHUP {
+				fmt.Println("SIGHUP received, reloading configuration...")
+				reload = true
+			} else {
+				fmt.Println("Shutting down...")
+			}
+		case <-reloadCh:
+			// Debounce: drain any extra events from rapid writes.
+			time.Sleep(500 * time.Millisecond)
+			for {
+				select {
+				case <-reloadCh:
+				default:
+					goto drained
+				}
+			}
+		drained:
+			fmt.Println("Config file changed, reloading...")
+			reload = true
+		}
+
+		cancel()
+		<-done
+		_ = mgr.Close()
+
+		// Re-add the config file watch in case the file was replaced (create vs write).
+		if watcher != nil {
+			_ = watcher.Remove(configPath)
+			_ = watcher.Add(configPath)
+		}
+
+		if !reload {
+			return nil
+		}
+	}
+}
+
+// openStore2 loads config just enough to get the state dir for the store.
+func openStore2(configPath string) (*store.Store, error) {
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+	return openStore(cfg)
 }
 
 func cmdScan(configPath string, args []string) error {

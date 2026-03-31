@@ -97,9 +97,9 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/jclement/tripline/internal/baseline"
-	"github.com/jclement/tripline/internal/engine"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/baseline"
+	"github.com/jclement/trapline/internal/engine"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // FileEntry captures the security-relevant attributes of a single monitored file.

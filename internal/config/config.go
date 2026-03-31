@@ -177,7 +177,7 @@ type UpdateConfig struct {
 	Enabled bool `yaml:"enabled"`
 
 	// Repo is the GitHub "owner/repo" slug to check for releases
-	// (e.g. "jclement/tripline").
+	// (e.g. "jclement/trapline").
 	Repo string `yaml:"repo"`
 
 	// Channel selects the release channel. Currently only "stable" is used;
@@ -320,7 +320,7 @@ func Default() *Config {
 		},
 		Update: UpdateConfig{
 			Enabled:       true,
-			Repo:          "jclement/tripline",
+			Repo:          "jclement/trapline",
 			Channel:       "stable",
 			CheckInterval: 6 * time.Hour,
 			// AutoApply is disabled by default until cosign signature verification

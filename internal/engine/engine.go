@@ -30,9 +30,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jclement/tripline/internal/config"
-	"github.com/jclement/tripline/internal/metrics"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/config"
+	"github.com/jclement/trapline/internal/metrics"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // FindingHandler is a callback invoked for each deduplicated, enriched finding produced

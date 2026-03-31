@@ -101,8 +101,8 @@ func TestDownload(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	u := New("jclement/tripline", "0.1.0", "/usr/local/bin/trapline")
-	if u.Repo != "jclement/tripline" {
+	u := New("jclement/trapline", "0.1.0", "/usr/local/bin/trapline")
+	if u.Repo != "jclement/trapline" {
 		t.Errorf("Repo = %q", u.Repo)
 	}
 	if u.CurrentVersion != "0.1.0" {

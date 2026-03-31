@@ -95,9 +95,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jclement/tripline/internal/baseline"
-	"github.com/jclement/tripline/internal/engine"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/baseline"
+	"github.com/jclement/trapline/internal/engine"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // Connection represents a single parsed TCP connection from the kernel's
@@ -176,8 +176,9 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 
 // processInfo holds the result of resolving a socket inode to its owning process.
 type processInfo struct {
-	Name string
-	PID  int
+	Name    string
+	ExePath string
+	PID     int
 }
 
 // buildInodeMap scans all /proc/<pid>/fd/ entries and returns a map from socket
@@ -206,9 +207,9 @@ func buildInodeMap(procDir string) map[string]processInfo {
 			continue
 		}
 
-		// Lazy-load comm only if we find a socket fd.
-		var procName string
-		var commLoaded bool
+		// Lazy-load process info only if we find a socket fd.
+		var info processInfo
+		var infoLoaded bool
 
 		for _, fd := range fds {
 			link, err := os.Readlink(filepath.Join(fdDir, fd.Name()))
@@ -219,27 +220,49 @@ func buildInodeMap(procDir string) map[string]processInfo {
 				continue
 			}
 			inode := link[8 : len(link)-1]
-			if !commLoaded {
+			if !infoLoaded {
 				comm, err := os.ReadFile(filepath.Join(procDir, entry.Name(), "comm"))
 				if err != nil {
 					break
 				}
-				procName = strings.TrimSpace(string(comm))
-				commLoaded = true
+				info.Name = strings.TrimSpace(string(comm))
+				info.PID = pid
+				// Read exe symlink for the full binary path (authoritative).
+				if exePath, err := os.Readlink(filepath.Join(procDir, entry.Name(), "exe")); err == nil {
+					info.ExePath = exePath
+				}
+				infoLoaded = true
 			}
-			result[inode] = processInfo{Name: procName, PID: pid}
+			result[inode] = info
 		}
 	}
 
 	return result
 }
 
-// isAllowedProcess returns true if the process name matches any entry in the
-// allowed_processes config list. Matching is case-insensitive.
-func (m *Module) isAllowedProcess(name string) bool {
+// matchesPattern checks if value matches pattern using glob matching
+// (case-insensitive). Supports wildcards like "apt*" or "/usr/bin/python*".
+func matchesPattern(pattern, value string) bool {
+	matched, _ := filepath.Match(strings.ToLower(pattern), strings.ToLower(value))
+	return matched
+}
+
+// isAllowedProcess returns true if the process matches any entry in the
+// allowed_processes config list. Matches against comm name, exe path basename,
+// and full exe path. Supports glob wildcards. Config entries like "apt" match
+// /usr/bin/apt; entries like "/usr/bin/apt*" match with wildcards.
+func (m *Module) isAllowedProcess(proc processInfo) bool {
 	for _, allowed := range m.allowedProcesses {
-		if strings.EqualFold(name, allowed) {
+		if matchesPattern(allowed, proc.Name) {
 			return true
+		}
+		if proc.ExePath != "" {
+			if matchesPattern(allowed, filepath.Base(proc.ExePath)) {
+				return true
+			}
+			if matchesPattern(allowed, proc.ExePath) {
+				return true
+			}
 		}
 	}
 	return false
@@ -273,7 +296,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 		}
 		// Resolve owning process via inode.
 		if proc, ok := inodeMap[c.Inode]; ok {
-			if m.isAllowedProcess(proc.Name) {
+			if m.isAllowedProcess(proc) {
 				continue
 			}
 			processMap[c.RemoteAddr] = proc
@@ -322,9 +345,23 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	for _, ip := range newIPs {
 		conn := currentIPs[ip]
 		proc := processMap[ip]
+
+		// Prefer exe path for display (authoritative), fall back to comm name.
+		procDisplay := proc.ExePath
+		if procDisplay == "" {
+			procDisplay = proc.Name
+		}
+		if procDisplay == "" {
+			procDisplay = "unknown"
+		}
+
 		procName := proc.Name
 		if procName == "" {
 			procName = "unknown"
+		}
+		procPath := proc.ExePath
+		if procPath == "" {
+			procPath = "unknown"
 		}
 
 		detail := map[string]interface{}{
@@ -333,6 +370,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 			"local_addr":   conn.LocalAddr,
 			"local_port":   conn.LocalPort,
 			"process_name": procName,
+			"process_path": procPath,
 		}
 		if proc.PID > 0 {
 			detail["process_pid"] = proc.PID
@@ -343,7 +381,7 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 			FindingID: fmt.Sprintf("network-new-outbound:%s", ip),
 			Severity:  severity,
 			Status:    finding.StatusNew,
-			Summary:   fmt.Sprintf("new outbound connection to %s:%d (process: %s)", ip, conn.RemotePort, procName),
+			Summary:   fmt.Sprintf("new outbound connection to %s:%d (process: %s)", ip, conn.RemotePort, procDisplay),
 			Detail:    detail,
 		})
 	}

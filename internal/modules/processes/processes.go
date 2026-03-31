@@ -94,18 +94,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jclement/tripline/internal/baseline"
-	"github.com/jclement/tripline/internal/engine"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/baseline"
+	"github.com/jclement/trapline/internal/engine"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // ProcessEntry represents a single running process. The Name field comes from
-// /proc/<pid>/comm (max 16 chars, kernel-truncated), Cmdline from
+// /proc/<pid>/comm (max 16 chars, kernel-truncated), ExePath from readlink on
+// /proc/<pid>/exe (the full binary path, much harder to spoof), Cmdline from
 // /proc/<pid>/cmdline (full argv with NUL delimiters replaced by spaces),
 // and UID from /proc/<pid>/status.
 type ProcessEntry struct {
 	PID     int    `json:"pid"`
 	Name    string `json:"name"`
+	ExePath string `json:"exe_path,omitempty"`
 	Cmdline string `json:"cmdline"`
 	UID     int    `json:"uid"`
 }
@@ -205,10 +207,68 @@ func (m *Module) Init(cfg engine.ModuleConfig) error {
 	return nil
 }
 
-// isExcluded returns true if the process name matches any exclude pattern.
-func (m *Module) isExcluded(name string) bool {
+// processKey returns the deduplication key for a process. Uses the full exe
+// path when available (authoritative, hard to spoof), falls back to comm name
+// for kernel threads and processes where /proc/[pid]/exe is unreadable.
+func processKey(p ProcessEntry) string {
+	if p.ExePath != "" {
+		return p.ExePath
+	}
+	return p.Name
+}
+
+// processDisplay returns a human-readable identifier for a process. Prefers
+// the full exe path, falls back to comm name.
+func processDisplay(p ProcessEntry) string {
+	if p.ExePath != "" {
+		return p.ExePath
+	}
+	return p.Name
+}
+
+// isExcluded returns true if the process matches any exclude pattern.
+// Patterns are matched against both the full exe path and the comm name.
+func (m *Module) isExcluded(p ProcessEntry) bool {
 	for _, pattern := range m.exclude {
-		if matched, _ := filepath.Match(pattern, name); matched {
+		if matched, _ := filepath.Match(pattern, p.Name); matched {
+			return true
+		}
+		if p.ExePath != "" {
+			base := filepath.Base(p.ExePath)
+			if matched, _ := filepath.Match(pattern, base); matched {
+				return true
+			}
+			if matched, _ := filepath.Match(pattern, p.ExePath); matched {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// matchesPattern checks if value matches pattern. Supports glob wildcards
+// via filepath.Match. Falls back to case-insensitive exact match when the
+// pattern contains no glob characters.
+func matchesPattern(pattern, value string) bool {
+	lower := strings.ToLower(value)
+	lowerPat := strings.ToLower(pattern)
+	if matched, _ := filepath.Match(lowerPat, lower); matched {
+		return true
+	}
+	return false
+}
+
+// isDenied returns true if the process matches a deny entry. Matches against
+// comm name, exe path basename, and full exe path. Supports glob wildcards.
+func (m *Module) isDenied(proc ProcessEntry, deny DenyEntry) bool {
+	if matchesPattern(deny.Name, proc.Name) {
+		return true
+	}
+	if proc.ExePath != "" {
+		if matchesPattern(deny.Name, filepath.Base(proc.ExePath)) {
+			return true
+		}
+		if matchesPattern(deny.Name, proc.ExePath) {
 			return true
 		}
 	}
@@ -230,23 +290,24 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	var findings []finding.Finding
 
 	// Deny list check runs unconditionally (even before baseline is established).
-	// Uses exact name matching (case-insensitive) rather than substring matching
-	// to prevent false positives like "ssh" matching "openssh-keyscan" or
-	// "mine" matching "prometheus-miner-exporter".
+	// Matches against comm name, exe path basename, and full exe path
+	// (case-insensitive) for maximum coverage.
 	for _, proc := range current {
 		for _, deny := range m.deny {
-			if strings.EqualFold(proc.Name, deny.Name) {
+			if m.isDenied(proc, deny) {
+				display := processDisplay(proc)
 				findings = append(findings, finding.Finding{
 					Timestamp: time.Now().UTC(),
 					FindingID: fmt.Sprintf("process-denied:%s:%d", proc.Name, proc.PID),
 					Severity:  finding.SeverityCritical,
 					Status:    finding.StatusNew,
-					Summary:   fmt.Sprintf("denied process '%s' running (PID %d)", proc.Name, proc.PID),
+					Summary:   fmt.Sprintf("denied process '%s' running (PID %d)", display, proc.PID),
 					Detail: map[string]interface{}{
-						"pid":     proc.PID,
-						"name":    proc.Name,
-						"cmdline": proc.Cmdline,
-						"uid":     proc.UID,
+						"pid":      proc.PID,
+						"name":     proc.Name,
+						"exe_path": proc.ExePath,
+						"cmdline":  proc.Cmdline,
+						"uid":      proc.UID,
 					},
 				})
 			}
@@ -264,26 +325,29 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 		return findings, nil
 	}
 
-	// Build a set of expected process names from the baseline for O(1) lookups.
-	baseNames := make(map[string]bool)
+	// Build a set of expected process keys from the baseline for O(1) lookups.
+	// Uses exe path when available (authoritative), falls back to comm name.
+	baseKeys := make(map[string]bool)
 	for _, p := range m.baseline {
-		baseNames[p.Name] = true
+		baseKeys[processKey(p)] = true
 	}
 
-	// Detect unexpected processes: any process name not in the baseline.
-	// This catches renamed malware, new backdoor services, attacker tools, etc.
+	// Detect unexpected processes: any process not in the baseline.
+	// Uses exe path for matching which is much harder to spoof than comm name.
 	for _, proc := range current {
-		if !baseNames[proc.Name] {
+		if !baseKeys[processKey(proc)] {
+			display := processDisplay(proc)
 			findings = append(findings, finding.Finding{
 				Timestamp: time.Now().UTC(),
-				FindingID: fmt.Sprintf("process-unexpected:%s", proc.Name),
+				FindingID: fmt.Sprintf("process-unexpected:%s", processKey(proc)),
 				Severity:  finding.SeverityMedium,
 				Status:    finding.StatusNew,
-				Summary:   fmt.Sprintf("unexpected process '%s' running (PID %d)", proc.Name, proc.PID),
+				Summary:   fmt.Sprintf("unexpected process '%s' running (PID %d)", display, proc.PID),
 				Detail: map[string]interface{}{
-					"pid":     proc.PID,
-					"name":    proc.Name,
-					"cmdline": proc.Cmdline,
+					"pid":      proc.PID,
+					"name":     proc.Name,
+					"exe_path": proc.ExePath,
+					"cmdline":  proc.Cmdline,
 				},
 			})
 		}
@@ -292,23 +356,25 @@ func (m *Module) Scan(ctx context.Context) ([]finding.Finding, error) {
 	// Detect missing expected processes: baseline processes no longer running.
 	// This can indicate an attacker killed a service (e.g., stopped logging),
 	// or a service crash that needs attention.
-	curNames := make(map[string]bool)
+	curKeys := make(map[string]bool)
 	for _, p := range current {
-		curNames[p.Name] = true
+		curKeys[processKey(p)] = true
 	}
 	for _, base := range m.baseline {
-		if m.isExcluded(base.Name) {
+		if m.isExcluded(base) {
 			continue
 		}
-		if !curNames[base.Name] {
+		if !curKeys[processKey(base)] {
+			display := processDisplay(base)
 			findings = append(findings, finding.Finding{
 				Timestamp: time.Now().UTC(),
-				FindingID: fmt.Sprintf("process-missing:%s", base.Name),
+				FindingID: fmt.Sprintf("process-missing:%s", processKey(base)),
 				Severity:  finding.SeverityMedium,
 				Status:    finding.StatusNew,
-				Summary:   fmt.Sprintf("expected process '%s' not running", base.Name),
+				Summary:   fmt.Sprintf("expected process '%s' not running", display),
 				Detail: map[string]interface{}{
-					"name": base.Name,
+					"name":     base.Name,
+					"exe_path": base.ExePath,
 				},
 			})
 		}
@@ -358,17 +424,17 @@ func (m *Module) scanProcesses() ([]ProcessEntry, error) {
 		}
 
 		// Skip excluded processes before dedup and collection.
-		if m.isExcluded(proc.Name) {
+		if m.isExcluded(proc) {
 			continue
 		}
 
-		// Deduplicate by name: we care about unique process names, not PIDs.
-		// This keeps the baseline stable across restarts of multi-instance
-		// services (e.g., nginx workers get different PIDs but same name).
-		if seen[proc.Name] {
+		// Deduplicate by exe path (or name for kernel threads). Using exe path
+		// prevents attackers from hiding behind prctl(PR_SET_NAME) spoofing.
+		key := processKey(proc)
+		if seen[key] {
 			continue
 		}
-		seen[proc.Name] = true
+		seen[key] = true
 		procs = append(procs, proc)
 	}
 
@@ -376,8 +442,9 @@ func (m *Module) scanProcesses() ([]ProcessEntry, error) {
 }
 
 // readProcess reads metadata for a single process from /proc/<pid>/.
-// It reads three files:
-//   - comm: the process name (kernel-truncated to 16 chars)
+// It reads:
+//   - exe: readlink of the actual binary path (authoritative, hard to spoof)
+//   - comm: the process name (kernel-truncated to 16 chars, fallback only)
 //   - cmdline: full command line with NUL-delimited argv
 //   - status: parsed for the real UID (first field of the Uid: line)
 func readProcess(procDir string, pid int) (ProcessEntry, error) {
@@ -390,6 +457,12 @@ func readProcess(procDir string, pid int) (ProcessEntry, error) {
 	if err != nil {
 		return ProcessEntry{}, err
 	}
+
+	// Read exe symlink — the actual binary path on disk. This is set by the
+	// kernel and cannot be changed by the process itself (unlike comm or
+	// cmdline). If the binary has been deleted, the kernel appends " (deleted)".
+	// Readlink may fail for kernel threads or permission-restricted processes.
+	exePath, _ := os.Readlink(filepath.Join(pidDir, "exe"))
 
 	// Read cmdline. This contains the full argv with NUL byte separators.
 	// We replace NULs with spaces for human readability. Note: a process
@@ -417,6 +490,7 @@ func readProcess(procDir string, pid int) (ProcessEntry, error) {
 	return ProcessEntry{
 		PID:     pid,
 		Name:    strings.TrimSpace(string(comm)),
+		ExePath: exePath,
 		Cmdline: strings.ReplaceAll(string(cmdline), "\x00", " "),
 		UID:     uid,
 	}, nil

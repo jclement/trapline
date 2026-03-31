@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jclement/tripline/internal/config"
-	"github.com/jclement/tripline/pkg/finding"
+	"github.com/jclement/trapline/internal/config"
+	"github.com/jclement/trapline/pkg/finding"
 )
 
 // mockModule is a test implementation of the Module interface.
