@@ -1,0 +1,66 @@
+---
+- name: Set trapline architecture
+  ansible.builtin.set_fact:
+    trapline_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
+
+- name: Check if trapline is installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/trapline
+  register: trapline_installed
+
+- name: Get installed trapline version
+  ansible.builtin.shell: /usr/local/bin/trapline version 2>&1 | grep -oP '[0-9]+\.[0-9]+\.[0-9]+'
+  register: trapline_installed_version
+  changed_when: false
+  failed_when: false
+  when: trapline_installed.stat.exists
+
+- name: Get latest trapline version from GitHub
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/jclement/trapline/releases/latest
+    return_content: true
+  register: trapline_latest_release
+
+- name: Set latest trapline version
+  ansible.builtin.set_fact:
+    trapline_latest_ver: "{{ trapline_latest_release.json.tag_name | regex_replace('^v', '') }}"
+
+- name: Determine if trapline needs install or update
+  ansible.builtin.set_fact:
+    trapline_needs_update: "{{ not trapline_installed.stat.exists or (trapline_installed_version.stdout | default('')) != trapline_latest_ver }}"
+
+- name: Debug version check
+  ansible.builtin.debug:
+    msg: "installed={{ trapline_installed_version.stdout | default('none') }} latest={{ trapline_latest_ver }} needs_update={{ trapline_needs_update }}"
+
+- name: Install or update trapline
+  when: trapline_needs_update
+  block:
+    - name: Download trapline binary
+      ansible.builtin.get_url:
+        url: "https://github.com/jclement/trapline/releases/latest/download/trapline_linux_{{ trapline_arch }}"
+        dest: /tmp/trapline
+        force: true
+        mode: "0755"
+
+    - name: Run trapline install
+      ansible.builtin.command: /tmp/trapline install
+
+    - name: Clean up downloaded binary
+      ansible.builtin.file:
+        path: /tmp/trapline
+        state: absent
+
+- name: Deploy trapline configuration
+  ansible.builtin.copy:
+    src: "{{ trapline_config_src }}"
+    dest: "{{ trapline_config_dest }}"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: restart trapline
+
+- name: Rebaseline trapline
+  ansible.builtin.command: trapline rebaseline
+  changed_when: true
+  when: trapline_rebaseline

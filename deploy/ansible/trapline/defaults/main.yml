@@ -1,0 +1,7 @@
+---
+# Path to your trapline config file (relative to playbook or absolute)
+trapline_config_src: files/trapline.yaml
+trapline_config_dest: /etc/trapline/trapline.yml
+
+# Set to true to run rebaseline after install/config change
+trapline_rebaseline: true

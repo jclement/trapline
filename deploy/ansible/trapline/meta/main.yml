@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  author: jclement
+  description: Install and configure Trapline host integrity monitoring
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - security
+    - monitoring
+    - integrity
+
+dependencies: []
